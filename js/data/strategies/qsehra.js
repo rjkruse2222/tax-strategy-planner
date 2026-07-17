@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'QSEHRA',
   category: 'Health & Fringe',
   applyOrder: 73,
+  conflictsWith: ['ichra', 'section-105-merp', 'hra-c-corp'],
+  conflictNote: 'A QSEHRA requires offering NO group health plan to any employee — an ICHRA, a §105 MERP, or a traditional C-corp HRA each statutorily disqualifies it (§9831(d)(3)(B)(ii)).',
 
   advisor: {
     summary:
@@ -149,6 +151,7 @@ TSIQ.strategyModules.push({
     }
     if (yearIndex === 0) {
       notes.push('Per-employee 2026 caps are indexed (~$6,450 self / ~$13,100 family — verify against the current Rev. Proc.). Requires <50 FTEs and no group health plan.');
+      notes.push('The ' + TSIQ.fmt.usd(amt) + ' modeled is NEW cash paid to employees each year — the tax saving is only roughly your marginal rate on that outlay, not the outlay itself. Weigh it as a compensation/benefits decision, not free money.');
     }
     return { profile: p, notes: notes };
   }

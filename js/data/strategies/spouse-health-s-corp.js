@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'S-Corp 2% Shareholder Health Insurance',
   category: 'Payroll & Family',
   applyOrder: 37,
+  conflictsWith: ['se-health-insurance', 'section-105-merp'],
+  conflictNote: 'Models the same health premium dollars as the SE Health Insurance strategy (Schedule C pattern) and the §105 MERP (which already sweeps in the family premiums) — select only one, or the premiums are double-counted.',
 
   advisor: {
     summary:
@@ -68,7 +70,7 @@ TSIQ.strategyModules.push({
       'Spouse takes a job with subsidized coverage mid-year: every month of mere ELIGIBILITY disallows the deduction, even if the family never enrolls.',
       'W-2 wages below the premium level cap the deduction — coordinate with reasonable-compensation planning.',
       'Payroll providers that route the inclusion through FICA boxes create needless payroll tax; the setup must be checked the first year.',
-      'IRS FAQ guidance treats the §162(l) deduction as reducing QBI for the S corp owner — a modest §199A offset this model does not compute; flag when QBI is material.'
+      'IRS FAQ guidance and the Form 8995 instructions treat the SEHI deduction as attributable to the business, so QBI is reduced by the premiums — a modest §199A offset (modeled here) that trims the net benefit when QBI is material.'
     ],
     bestFit: [
       'S-corp owners currently paying health premiums personally with after-tax dollars.',
@@ -123,11 +125,16 @@ TSIQ.strategyModules.push({
   /**
    * The entity deduction and the W-2 Box 1 inclusion offset each other, so
    * the net modeled effect vs. paying premiums personally is the §162(l)
-   * above-the-line deduction: adjustments += premiums. No FICA cost is added
-   * (the inclusion is FICA-exempt per Announcement 92-16). The §162(l)
-   * earned-income limit is enforced by capping at ownerWages. Simplification:
-   * the IRS position that this deduction also reduces §199A QBI is not
-   * modeled (noted for the advisor).
+   * above-the-line deduction: adjustments += premiums. Neither passthroughK1
+   * nor ownerWages is touched — the K-1 reduction and the wage inclusion are
+   * modeled as the wash they are, which also avoids the engine charging FICA
+   * on the inclusion (FICA-exempt per Announcement 92-16). Because the K-1
+   * (and therefore QBI) is left un-reduced by the entity-side deduction, the
+   * Form 8995-instructions treatment of SEHI as attributable to the business
+   * is applied as a SINGLE net qbiReduction equal to the premiums — one
+   * reduction, not two. The §162(l) earned-income limit is enforced by
+   * capping at ownerWages (per Form 7206, the shareholder's wages from the
+   * corporation — not K-1 income).
    */
   apply: function (profile, params, yearIndex, state) {
     var p = Object.assign({}, profile);
@@ -146,12 +153,14 @@ TSIQ.strategyModules.push({
     var premiums = params.annualPremiums || 0;
     var deduction = Math.min(premiums, p.ownerWages);
     p.adjustments = (p.adjustments || 0) + deduction;
+    p.qbiReduction = (p.qbiReduction || 0) + deduction;
 
     if (yearIndex === 0) {
       notes.push(TSIQ.fmt.usd(deduction) + ' of health premiums deducted above the line ' +
         '(§162(l)): entity pays/reimburses, adds to W-2 Box 1 (FICA-exempt per Ann. 92-16), ' +
         'shareholder deducts — the wage inclusion and entity deduction wash, leaving this ' +
-        'deduction as the net benefit vs. paying premiums personally.');
+        'deduction as the net benefit vs. paying premiums personally. QBI is reduced by ' +
+        'the same amount (Form 8995 instructions), trimming the §199A deduction slightly.');
       if (premiums > p.ownerWages) {
         notes.push('Premiums exceed owner W-2 wages — deduction capped at wages ' +
           '(§162(l) earned-income limit). Consider raising reasonable compensation.');

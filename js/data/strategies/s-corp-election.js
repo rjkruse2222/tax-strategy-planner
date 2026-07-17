@@ -9,6 +9,9 @@ TSIQ.strategyModules.push({
   name: 'S Corporation Election',
   category: 'Entity Structure',
   applyOrder: 10, // restructures income first; PTET and others compose after
+  conflictsWith: ['c-corp-conversion'],
+  conflictNote: 'A business is taxed as either an S corporation or a C corporation ' +
+    'for a given year (§1361/§1362) — the two conversions cannot apply to the same entity.',
 
   advisor: {
     summary:

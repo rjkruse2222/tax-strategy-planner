@@ -10,6 +10,10 @@ TSIQ.strategyModules.push({
   name: 'Defined Benefit / Cash Balance Plan',
   category: 'Retirement',
   applyOrder: 64,
+  conflictsWith: ['solo-401k', 'sep-ira', 'simple-ira', 'cash-balance-stack'],
+  conflictNote: 'DB + DC combinations are modeled by the cash balance stack strategy — ' +
+    'selecting the standalone DB plan alongside a DC strategy (or the stack itself) ' +
+    'double-counts deductions against the same compensation.',
   modeled: true,
 
   advisor: {

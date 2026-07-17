@@ -10,6 +10,9 @@ TSIQ.strategyModules.push({
   name: 'C-Corp Conversion (Retained Earnings / QSBS)',
   category: 'Entity Structure',
   applyOrder: 11, // restructures income right after S-corp election in ordering
+  conflictsWith: ['s-corp-election'],
+  conflictNote: 'A business is taxed as either an S corporation or a C corporation ' +
+    'for a given year (§1361/§1362) — the two conversions cannot apply to the same entity.',
   modeled: true,
 
   advisor: {
@@ -84,7 +87,7 @@ TSIQ.strategyModules.push({
       'Non-SSTB businesses (SSTBs fail the §1202 qualified-business test).'
     ],
     implementation: [
-      'Model the full comparison: passthrough (with QBI) vs. 21% + dividend layer at the client\'s actual distribution needs — this tool\'s scenario math does exactly that.',
+      'Model the full comparison: passthrough (with QBI) vs. 21% + dividend layer at the client\'s actual distribution needs. This tool defaults to 100% of after-tax profit distributed — the honest base case; lower the distribution % to model retention, and the notes quantify the deferred shareholder-level tax embedded in retained earnings.',
       'Incorporate under §351 or file Form 8832 for an existing LLC; issue stock and record the §1202 gross-asset test as of issuance.',
       'Set reasonable W-2 compensation and run payroll; document board minutes for retained-earnings plans (the §531 defense file).',
       'Adopt a dividend policy — deliberately low if the retained-earnings thesis is the point.',
@@ -123,7 +126,8 @@ TSIQ.strategyModules.push({
 
   inputs: [
     { key: 'ownerSalary', label: 'Owner W-2 salary (reasonable comp)', type: 'currency', default: 120000 },
-    { key: 'dividendsPaid', label: 'Annual dividends paid to owner', type: 'currency', default: 0 },
+    { key: 'distributionPct', label: '% of after-tax C-corp profit distributed annually', type: 'percent', default: 100, max: 100 },
+    { key: 'dividendsPaid', label: 'Or: explicit annual dividends (overrides the % when > 0)', type: 'currency', default: 0 },
     { key: 'adminCost', label: 'Annual payroll + 1120 compliance cost', type: 'currency', default: 3000 }
   ],
 
@@ -133,12 +137,19 @@ TSIQ.strategyModules.push({
 
   /**
    * Converts Schedule C income into: owner W-2 wages + corporate profit taxed
-   * at the flat 21% rate (§11) + an optional qualified-dividend layer.
-   * Employer FICA and admin cost reduce corporate profit. Retained (undistributed)
-   * profit bears only the 21% tax in this model; dividends actually paid are
-   * added to qualDiv, creating the double-tax layer on the personal return.
-   * Simplification: dividends are assumed paid from current/accumulated E&P
-   * (fully qualified); corporate-level state tax is not modeled.
+   * at the flat 21% rate (§11) + a qualified-dividend layer on the amount
+   * distributed. Employer FICA and admin cost reduce corporate profit.
+   * Distribution model: by DEFAULT 100% of after-tax profit flows out as
+   * qualified dividends each year — the honest base case, so the headline
+   * comparison includes the shareholder-level second tax layer. Lowering
+   * distributionPct models retention: the retained portion bears only the 21%
+   * tax in the scenario math, and the notes quantify the DEFERRED
+   * shareholder-level tax (15/18.8/23.8%) embedded in it plus §531 exposure.
+   * An explicit dividendsPaid amount (> 0) OVERRIDES the percentage —
+   * advisor-entered dollars win, and may exceed current-year after-tax profit
+   * to model distributions out of prior accumulated E&P.
+   * Simplification: dividends are assumed fully qualified (§1(h)(11));
+   * corporate-level state tax is not modeled.
    */
   apply: function (profile, params, yearIndex, state) {
     var p = Object.assign({}, profile);
@@ -151,38 +162,84 @@ TSIQ.strategyModules.push({
     var tb = TSIQ.TABLES_2026;
     var f = tb.fica;
     var salary = Math.min(params.ownerSalary, p.scheduleCNet); // can't pay more than profit
-    if (salary < params.ownerSalary) {
+    if (salary < params.ownerSalary && yearIndex === 0) {
       notes.push('Salary capped at business profit of ' + TSIQ.fmt.usd(p.scheduleCNet) + '.');
     }
     var employerFICA = Math.min(salary, f.ssWageBase) * (f.ssRate / 2) +
       salary * (f.medicareRate / 2);
     var corpProfit = p.scheduleCNet - salary - employerFICA - (params.adminCost || 0);
     var corpTax = Math.max(0, corpProfit) * tb.corporateRate;
+    var afterTaxProfit = Math.max(0, corpProfit) - corpTax;
+
+    // Distribution layer: default 100% of after-tax profit out as qualified
+    // dividends; explicit dividendsPaid dollars override the percentage.
+    var pctRaw = (params.distributionPct !== undefined ? params.distributionPct : 100);
+    var pct = Math.max(0, Math.min(100, pctRaw)) / 100;
+    var dividends = (params.dividendsPaid || 0) > 0
+      ? params.dividendsPaid
+      : afterTaxProfit * pct;
+    var retained = Math.max(0, afterTaxProfit - dividends);
+
+    // Deferred shareholder-level rates on retained earnings when eventually
+    // distributed. The 15%/20% qualified-dividend brackets (§1(h)(11)) are
+    // statutory rates the engine also applies in prefRateTax; NIIT from tables.
+    var divRateLow = 0.15;                  // §1(h)(11) 15% bracket
+    var divRateHigh = 0.20 + tb.niit.rate;  // 20% top bracket + 3.8% NIIT
 
     p.corpTaxPaid = (p.corpTaxPaid || 0) + corpTax;
     p.ownerWages = (p.ownerWages || 0) + salary;
-    p.qualDiv = (p.qualDiv || 0) + (params.dividendsPaid || 0);
+    p.qualDiv = (p.qualDiv || 0) + dividends;
     p.scheduleCNet = 0;
+
+    // Multi-year memory: cumulative retained earnings drive the §531 note.
+    state.cCorpConvRetained = (state.cCorpConvRetained || 0) + retained;
 
     if (yearIndex === 0) {
       notes.push('C-corp profit of ' + TSIQ.fmt.usd(Math.max(0, corpProfit)) +
         ' taxed at the flat 21% rate (§11): ' + TSIQ.fmt.usd(corpTax) +
-        ' corporate tax. Retained earnings compound at 21% instead of your personal rate.');
-      if ((params.dividendsPaid || 0) > 0) {
-        notes.push(TSIQ.fmt.usd(params.dividendsPaid) + ' of dividends modeled as ' +
-          'qualified dividends on the personal return — the double-tax layer (§301/§316).');
-        var afterTaxProfit = Math.max(0, corpProfit) - corpTax;
-        if ((params.dividendsPaid || 0) > afterTaxProfit) {
+        ' corporate tax, leaving ' + TSIQ.fmt.usd(afterTaxProfit) + ' after tax.');
+      if (dividends > 0) {
+        notes.push(TSIQ.fmt.usd(dividends) +
+          ((params.dividendsPaid || 0) > 0
+            ? ' of advisor-entered dividends (overriding the distribution %)'
+            : ' — ' + TSIQ.fmt.pct(pct, 0) + ' of after-tax profit —') +
+          ' modeled as qualified dividends on the personal return: the second ' +
+          'tax layer (§301/§316; §1(h)(11)).');
+        if (dividends > afterTaxProfit) {
           notes.push('Warning: dividends exceed current-year after-tax corporate profit of ' +
             TSIQ.fmt.usd(afterTaxProfit) + ' — sustainable only from prior accumulated E&P.');
         }
       }
+      if (retained > 0) {
+        notes.push('Retained (undistributed) after-tax profit of ' + TSIQ.fmt.usd(retained) +
+          ' per year bears only the 21% corporate layer in this projection — but the ' +
+          'shareholder-level tax is deferred, not eliminated. Paying it out later costs ' +
+          '15% / 18.8% / 23.8% (qualified-dividend rate, with 3.8% NIIT, and the 20% top ' +
+          'bracket; §1(h)(11), §1411): roughly ' + TSIQ.fmt.usd(retained * divRateLow) +
+          '–' + TSIQ.fmt.usd(retained * divRateHigh) + ' of embedded future tax on each ' +
+          'year\'s retention. Savings shown versus a passthrough are substantially ' +
+          'timing, not permanent.');
+        notes.push('§531 accumulated earnings tax: 20% penalty on earnings retained ' +
+          'beyond reasonable business needs, generally above the $250,000 credit ' +
+          '($150,000 for service corporations; §535(c)(2)). Board minutes documenting ' +
+          'expansion plans are the defense file — start them in year one.');
+      }
       notes.push('No §199A/QBI deduction applies to C-corp profit — the scenario math ' +
-        'reflects losing it. Watch §531 (accumulated earnings) and §541 (personal ' +
-        'holding company) exposure on retained/passive earnings.');
+        'reflects losing it. Watch §541 (personal holding company) exposure if the ' +
+        'corporation drifts into passive investment income.');
       if (corpProfit < 0) {
         notes.push('Warning: salary + payroll costs exceed profit — conversion is not beneficial at this income level.');
       }
+    }
+
+    // Year-specific: flag the year cumulative retention crosses the §531 credit.
+    if (!state.cCorpConvAETFlagged && state.cCorpConvRetained > 250000) {
+      state.cCorpConvAETFlagged = true;
+      notes.push('Year ' + (yearIndex + 1) + ': cumulative modeled retained earnings ' +
+        'reach ' + TSIQ.fmt.usd(state.cCorpConvRetained) + ', past the $250,000 ' +
+        '§531/§535(c)(2) accumulated-earnings credit — deferred shareholder-level tax ' +
+        'embedded so far: ' + TSIQ.fmt.usd(state.cCorpConvRetained * divRateLow) + '–' +
+        TSIQ.fmt.usd(state.cCorpConvRetained * divRateHigh) + '.');
     }
     return { profile: p, notes: notes };
   }

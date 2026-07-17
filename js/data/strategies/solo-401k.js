@@ -10,6 +10,11 @@ TSIQ.strategyModules.push({
   name: 'Solo 401(k)',
   category: 'Retirement',
   applyOrder: 61,
+  conflictsWith: ['sep-ira', 'simple-ira', 'safe-harbor-401k',
+    'profit-sharing-new-comparability', 'defined-benefit-plan', 'cash-balance-stack'],
+  conflictNote: 'Each plan strategy applies the full §402(g)/§415(c) limits against ' +
+    'the same owner compensation, so stacking double-counts the deduction — model a ' +
+    'DB+DC combination with the cash balance stack strategy instead.',
 
   advisor: {
     summary:
@@ -152,7 +157,7 @@ TSIQ.strategyModules.push({
     // Compensation base. SE: net earnings ≈ scheduleCNet × 0.9235 (§1402(a)(12));
     // the ½-SE-tax refinement is immaterial to this comparison and slightly conservative.
     var comp = isSE
-      ? p.scheduleCNet * 0.9235
+      ? p.scheduleCNet * TSIQ.TABLES_2026.fica.seNetEarningsFactor
       : Math.min(p.ownerWages, lim.compensationLimit);
     var employerMax = isSE ? comp * 0.20 : comp * 0.25;
 

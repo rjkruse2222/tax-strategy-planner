@@ -158,6 +158,14 @@ TSIQ.strategyModules.push({
       if (bunched < baselineGiving * n) {
         notes.push('Heads up: the bunched amount is less than ' + n + ' years of baseline ' +
           'giving (' + TSIQ.fmt.usd(baselineGiving * n) + ') — confirm that is intended.');
+      } else if (bunched > baselineGiving * n) {
+        notes.push('Heads up: the bunched contribution exceeds ' + n + ' year(s) of baseline ' +
+          'giving (' + TSIQ.fmt.usd(baselineGiving * n) + ') by ' +
+          TSIQ.fmt.usd(bunched - baselineGiving * n) + ' per cycle. That excess is ' +
+          'ADDITIONAL cash irrevocably committed to charity, not a rearrangement of gifts ' +
+          'already planned — the tax savings shown offset only part of each extra dollar ' +
+          'given away. Confirm the client actually intends to increase total giving; ' +
+          'otherwise size the bunch at baseline giving × the cycle length.');
       }
     }
     return { profile: p, notes: notes };

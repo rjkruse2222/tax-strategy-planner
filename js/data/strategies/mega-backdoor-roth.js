@@ -11,6 +11,10 @@ TSIQ.strategyModules.push({
   name: 'Mega Backdoor Roth (After-Tax 401(k))',
   category: 'Retirement',
   applyOrder: 65,
+  conflictsWith: ['sep-ira', 'simple-ira'],
+  conflictNote: 'The mega backdoor needs a 401(k) chassis — a SIMPLE employer cannot ' +
+    'maintain one (§408(p)(2)(D)), and a Form 5305-SEP cannot coexist with the 401(k) ' +
+    'while SEP dollars consume the shared §415(c) headroom the after-tax layer fills.',
   modeled: false,
 
   advisor: {

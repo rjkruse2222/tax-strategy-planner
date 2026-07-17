@@ -10,6 +10,11 @@ TSIQ.strategyModules.push({
   name: 'New Comparability Profit Sharing',
   category: 'Retirement',
   applyOrder: 67,
+  conflictsWith: ['solo-401k', 'sep-ira', 'simple-ira', 'safe-harbor-401k',
+    'cash-balance-stack'],
+  conflictNote: 'Each of these strategies applies the full §415(c) limit against the same ' +
+    'compensation — for a combined safe harbor + profit sharing plan, adjust this ' +
+    'strategy\'s inputs to the combined numbers; for a DB combo use the cash balance stack.',
   modeled: true,
 
   advisor: {

@@ -11,6 +11,10 @@ TSIQ.strategyModules.push({
   name: 'Backdoor Roth IRA',
   category: 'Retirement',
   applyOrder: 69,
+  conflictsWith: ['sep-ira', 'simple-ira'],
+  conflictNote: 'Pre-tax SEP/SIMPLE balances aggregate into the §408(d)(2) pro-rata ' +
+    'fraction, making the backdoor conversion largely taxable — the modeled benefit ' +
+    'evaporates.',
   modeled: false,
 
   advisor: {
