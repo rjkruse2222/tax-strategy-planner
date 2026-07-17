@@ -548,6 +548,7 @@
     lastRun = {
       clientName: $('clientName').value || 'Client',
       firmName: $('firmName').value || TSIQ.brand.name,
+      fees: { planning: num('feePlanning'), annual: num('feeAnnual') },
       profile: profile,
       baseline: TSIQ.computeBaseline(profile, years, growthRate),
       scenarios: scenarios,
