@@ -60,7 +60,10 @@ window.TSIQ = window.TSIQ || {};
   }
 
   function isNumericItem(s) {
-    return /^\(?\$?\s?[0-9][0-9,]*\.?[0-9]{0,2}\)?$/.test(s.trim());
+    // Accepts "4,000", "$ 4,000", "(4,000)", and hyphen negatives ("-4,000",
+    // "$-4,000") — several packages print losses with a leading minus rather
+    // than parentheses, and missing those silently drops rental/capital losses.
+    return /^\(?\$?\s?-?[0-9][0-9,]*\.?[0-9]{0,2}\)?$/.test(s.trim());
   }
 
   /**

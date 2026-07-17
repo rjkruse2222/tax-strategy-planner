@@ -111,7 +111,10 @@ TSIQ.strategyModules.push({
    * Reduces federal passthrough income by the entity-level tax paid, and
    * credits that tax against the personal state liability (the engine treats
    * profile.ptetPaid as a credit and includes it in total state burden, so
-   * total state tax stays ~flat while federal income drops).
+   * total state tax stays ~flat while federal income drops). The PTET is
+   * added back to the state base via stateAddback — credit states (CA, NY,
+   * etc.) do not let the entity deduction reduce state taxable income, and
+   * without the addback the model shows phantom state savings every year.
    */
   apply: function (profile, params, yearIndex, state) {
     var p = Object.assign({}, profile);
@@ -125,9 +128,12 @@ TSIQ.strategyModules.push({
     var ptet = p.passthroughK1 * rate;
     p.passthroughK1 = p.passthroughK1 - ptet;
     p.ptetPaid = (p.ptetPaid || 0) + ptet;
+    p.stateAddback = (p.stateAddback || 0) + ptet;
     if (yearIndex === 0) {
       notes.push('Entity pays ' + TSIQ.fmt.usd(ptet) + ' of state tax, fully deductible ' +
-        'federally (Notice 2020-75); owner receives an equal state credit.');
+        'federally (Notice 2020-75); owner receives an equal state credit. The deduction ' +
+        'is added back to the state base, so the state burden stays ~flat and the ' +
+        'savings shown are federal only.');
       notes.push('Federal benefit shown is net of the §199A interaction (PTET also reduces QBI).');
     }
     return { profile: p, notes: notes };

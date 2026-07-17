@@ -43,6 +43,7 @@ window.TSIQ = window.TSIQ || {};
     for (var y = 0; y < years; y++) {
       var profile = grownProfile(baseProfile, growthRate, y);
       profile.ptetPaid = 0;
+      profile.stateAddback = 0;
       profile.ownerWages = profile.ownerWages || 0;
       profile.entityW2Wages = profile.entityW2Wages || 0;
 

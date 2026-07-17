@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/30095645/README.md)
 # Tax Strategy Planner
 
 A tax planning tool: input client return data, apply strategies from the library,
@@ -95,5 +94,7 @@ Just open a session in this folder and ask for what you want, e.g.:
 ## Scope notes (v1)
 
 Federal 2026 law per Rev. Proc. 2025-32 / OBBBA. State tax uses a flat effective
-rate. Not yet modeled: AMT, depreciation recapture on sale, §461(l). See
-`CLAUDE.md` for the full list.
+rate. Not yet modeled: AMT, depreciation recapture on sale, §461(l), the
+refundable ACTC portion of the child tax credit, excess-SS-withholding
+coordination across employers, and Social Security taxability phase-ins.
+Projection years 2+ reuse the 2026 tables (no inflation indexing).

@@ -378,7 +378,7 @@
     }
     html += '<p class="fine-print">2026 federal figures per Rev. Proc. 2025-32 as amended by OBBBA. ' +
       'Projection applies 2026 law to all years. State tax modeled at a flat effective rate. ' +
-      'AMT, recapture on sale, and §461(l) not modeled — see CLAUDE.md scope notes.</p>';
+      'AMT, recapture on sale, and §461(l) not modeled — see the README scope notes.</p>';
 
     $('results').innerHTML = html;
     $('output-actions').style.display = 'flex';
@@ -411,9 +411,39 @@
     });
   }
 
-  function compute() {
+  // Chrome/Edge leave a number input's value as "" (validity.badInput) when
+  // it holds text that isn't a plain number — e.g. a pasted "1,250,000" —
+  // which num() would silently read as $0. Refuse to compute until fixed.
+  function badNumberInputs() {
+    var bad = [];
+    var els = document.querySelectorAll('input[type="number"]');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].validity && els[i].validity.badInput) bad.push(els[i]);
+    }
+    return bad;
+  }
+
+  function fieldLabel(el) {
+    var lab = document.querySelector('label[for="' + el.id + '"]');
+    if (!lab) {
+      var wrap = el.closest('.field, .param');
+      if (wrap) lab = wrap.querySelector('label');
+    }
+    return lab ? lab.textContent.trim() : el.id;
+  }
+
+  function compute(opts) {
+    opts = opts || {};
+    var bad = badNumberInputs();
+    if (bad.length) {
+      alert('These fields contain something that is not a plain number (no commas ' +
+        'or symbols):\n\n' + bad.map(fieldLabel).join('\n') +
+        '\n\nFix them before computing — they would otherwise be read as $0.');
+      return null;
+    }
     var profile = readProfile();
-    var years = Math.max(1, Math.round(num('years'))) || 10;
+    // Blank or 0 → the 10-year default; hard-clamped to 1–30.
+    var years = Math.min(30, Math.max(1, Math.round(num('years')) || 10));
     var growthRate = num('growthPct') / 100;
 
     var scenarios = [];
@@ -437,7 +467,7 @@
     }
     if (!scenarios.length) {
       alert('Select at least one strategy in Scenario 2.');
-      return;
+      return null;
     }
 
     lastRun = {
@@ -450,7 +480,8 @@
       growthRate: growthRate
     };
     renderResults(lastRun);
-    $('results-section').scrollIntoView({ behavior: 'smooth' });
+    if (!opts.noScroll) $('results-section').scrollIntoView({ behavior: 'smooth' });
+    return lastRun;
   }
 
   /* --------------------- client file import / export --------------------- */
@@ -461,6 +492,31 @@
     'kidsCTC', 'otherDeps', 'fedWithholding', 'fedEstimates',
     'stateWithholding', 'stateEstimates', 'stateRatePct', 'years', 'growthPct'];
   var PROFILE_CHECKBOX_IDS = ['isSSTB', 'rentalLossesUsable'];
+
+  // Restore every client-data field to its pristine (HTML-default) state and
+  // clear anything computed from the previous client. Called before ANY
+  // import, so a new client never inherits values from the last one — a
+  // field an import omits gets its default, never stale data.
+  function resetClientForm() {
+    $('clientName').value = '';
+    PROFILE_FIELD_IDS.forEach(function (id) {
+      var el = $(id);
+      if (el.tagName === 'SELECT') {
+        var idx = 0;
+        for (var i = 0; i < el.options.length; i++) {
+          if (el.options[i].defaultSelected) { idx = i; break; }
+        }
+        el.selectedIndex = idx;
+      } else {
+        el.value = el.defaultValue;
+      }
+    });
+    PROFILE_CHECKBOX_IDS.forEach(function (id) { $(id).checked = $(id).defaultChecked; });
+    renderSuggestions(null, null);
+    lastRun = null;
+    $('results').innerHTML = '';
+    $('output-actions').style.display = 'none';
+  }
 
   function exportClientFile() {
     var data = { format: 'tsiq-client-v1', clientName: $('clientName').value || 'Client', profile: {} };
@@ -527,6 +583,7 @@
       if (!data || data.format !== 'tsiq-client-v1') {
         alert('Not a recognized client file (expected format "tsiq-client-v1").'); return;
       }
+      resetClientForm();
       if (data.clientName) $('clientName').value = data.clientName;
       var p = data.profile || {};
       PROFILE_FIELD_IDS.forEach(function (id) { if (p[id] !== undefined) $(id).value = p[id]; });
@@ -553,7 +610,9 @@
       '<p class="hint" style="color:var(--muted);font-size:13px;margin-bottom:16px">' +
       esc(fileName) + (result.formYear ? ' &middot; tax year ' + result.formYear : '') +
       ' &middot; read directly from the PDF (no AI). Verify each figure against the return, ' +
-      'then Apply — nothing touches the form until you do.</p>';
+      'then Apply — nothing touches the form until you do. Applying first RESETS the ' +
+      'client form (including client name), so no values from a previous client can ' +
+      'carry over; fields not listed here return to their defaults.</p>';
 
     html += '<div class="grid" style="margin-bottom:18px">';
     Object.keys(PDF_FIELD_LABELS).forEach(function (k) {
@@ -599,6 +658,7 @@
     $('pdf-review-body').innerHTML = html;
     $('pdf-review-modal').classList.add('open');
     $('pdfr-apply').addEventListener('click', function () {
+      resetClientForm();
       Object.keys(PDF_FIELD_LABELS).forEach(function (k) {
         var el = $('pdfr-' + k);
         if (!el) return;
@@ -653,11 +713,13 @@
     buildScenarioPicker('sc2', 'sc2-strategies');
     buildScenarioPicker('sc3', 'sc3-strategies');
     $('compute').addEventListener('click', compute);
+    // Every client-facing output recomputes from the CURRENT form state so a
+    // report can never show numbers that no longer match the inputs.
     $('btn-pdf').addEventListener('click', function () {
-      if (lastRun) TSIQ.render.clientReport(lastRun);
+      if (compute({ noScroll: true })) TSIQ.render.clientReport(lastRun);
     });
     $('btn-slides').addEventListener('click', function () {
-      if (lastRun) TSIQ.render.slideshow(lastRun);
+      if (compute({ noScroll: true })) TSIQ.render.slideshow(lastRun);
     });
     if (window.pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'js/vendor/pdf.worker.min.js';
@@ -679,7 +741,7 @@
       e.target.value = '';
     });
     $('btn-pitch').addEventListener('click', function () {
-      if (!lastRun) return;
+      if (!compute({ noScroll: true })) return;
       lastRun.fees = { planning: num('feePlanning'), annual: num('feeAnnual') };
       TSIQ.render.pitchDeck(lastRun);
     });

@@ -109,6 +109,8 @@ unless the note is year-specific.
 | `otherCredits` | ADD nonrefundable federal credits (R&D, WOTC, 45F, §44, 45S) |
 | `corpTaxPaid` | ADD entity-level federal tax (C-corp modeling, 21% via `TSIQ.TABLES_2026.corporateRate`) |
 | `ptetPaid` | entity-level STATE tax (PTET pattern) |
+| `stateAddback` | ADD federal-only deductions back to the flat-rate state base (e.g., PTET — credit states don't let the entity deduction reduce state income) |
+| `otherTaxes` | ADD payroll/other federal taxes the strategy creates (e.g., FICA on family wages) |
 | `kidsCTC`, `otherDeps` | dependents |
 | `stateRate` | flat state rate (decimal) |
 
