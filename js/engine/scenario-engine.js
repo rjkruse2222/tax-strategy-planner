@@ -18,6 +18,10 @@ window.TSIQ = window.TSIQ || {};
     GROWTH_FIELDS.forEach(function (k) {
       if (typeof p[k] === 'number') p[k] = p[k] * factor;
     });
+    // A one-time sale must not recur (grown!) in every projection year —
+    // that would distort later-year brackets, NIIT, and 0/15/20% stacking
+    // in both baseline and scenarios.
+    if (yearIndex > 0 && base.ltcgOneTime) p.ltcg = 0;
     // Withholding/estimates are year-to-date payments for the CURRENT year —
     // they don't apply to projection years 2+.
     if (yearIndex > 0) {

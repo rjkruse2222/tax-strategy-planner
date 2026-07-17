@@ -34,12 +34,14 @@
         <p class="hint">Enter figures from the client's return (or projections for 2026), or import a client file. Rental net income should already reflect current straight-line depreciation.</p>
       </div>
       <div class="head-actions">
+        <button class="secondary" id="btn-import-pln">Import CCH Planner (.pln)</button>
         <button class="secondary" id="btn-import-pdf">Import Return (PDF)</button>
         <button class="secondary" id="btn-import">Import Client File</button>
         <button class="secondary" id="btn-export">Export Client File</button>
         <button class="secondary" id="btn-suggest">Suggest Strategies</button>
         <input id="import-file" type="file" accept=".json,application/json" style="display:none">
         <input id="import-pdf-file" type="file" accept=".pdf,application/pdf" style="display:none">
+        <input id="import-pln-file" type="file" accept=".pln" style="display:none">
       </div>
     </div>
 
@@ -73,6 +75,7 @@
       <h3 class="group-title">Income</h3>
       <div class="grid">
         <div class="field"><label for="wages">W-2 wages (outside jobs)</label><input id="wages" type="number" value="0"></div>
+        <div class="field" title="W-2 salary the client's own S-corp already pays them. The engine charges both FICA halves on it. Include it in the entity W-2 wages field too (&sect;199A wage limit)."><label for="ownerWages">Owner W-2 wages from own S-corp</label><input id="ownerWages" type="number" value="0"></div>
         <div class="field"><label for="scheduleCNet">Schedule C net profit</label><input id="scheduleCNet" type="number" value="0"></div>
         <div class="field"><label for="passthroughK1">K-1 ordinary income (existing S-corp/pship)</label><input id="passthroughK1" type="number" value="0"></div>
         <div class="field"><label for="entityW2Wages">W-2 wages paid by entity (for &sect;199A)</label><input id="entityW2Wages" type="number" value="0"></div>
@@ -85,6 +88,7 @@
       <div class="check-row">
         <span class="field check"><input id="isSSTB" type="checkbox"><label for="isSSTB">Specified service business (SSTB)</label></span>
         <span class="field check"><input id="rentalLossesUsable" type="checkbox" checked><label for="rentalLossesUsable">Rental losses currently usable (RE pro / passive income)</label></span>
+        <span class="field check" title="Check when the capital gain is a one-time sale. Projection years 2+ then exclude it, so later-year brackets, NIIT, and 0/15/20% stacking aren't distorted by a gain that won't repeat."><input id="ltcgOneTime" type="checkbox"><label for="ltcgOneTime">Capital gain is one-time (exclude from years 2+)</label></span>
       </div>
     </div>
 
@@ -144,6 +148,7 @@
     <div class="actions" id="output-actions" style="display:none">
       <button class="secondary" id="btn-pdf">Generate Client PDF Report</button>
       <button class="secondary" id="btn-slides">Launch Client Slideshow</button>
+      <button class="secondary" id="btn-tieback" title="Per-year input values for each scenario, labeled with CCH Planning row names — key them into a Planner case to verify the numbers there.">CCH Planner Tie-Back Sheet</button>
       <span class="fee-group">
         <span class="fee-field"><label for="feePlanning">Plan fee (one-time)</label><input id="feePlanning" type="number" value="5000"></span>
         <span class="fee-field"><label for="feeAnnual">Annual fee</label><input id="feeAnnual" type="number" value="0"></span>
@@ -178,6 +183,12 @@
 <div id="pdf-review-modal"><div class="modal-card">
   <button id="pdf-review-close" class="modal-close">Close &times;</button>
   <div id="pdf-review-body"></div>
+</div></div>
+
+<!-- CCH ProSystem fx Planning (.pln) import review modal -->
+<div id="pln-review-modal"><div class="modal-card">
+  <button id="pln-review-close" class="modal-close">Close &times;</button>
+  <div id="pln-review-body"></div>
 </div></div>
 
 <!-- brand settings modal (white-label: firm name, color, logo) -->
@@ -325,8 +336,10 @@
 <script src="js/vendor/pdf.min.js"></script>
 <script src="js/vendor/pdf.worker.min.js"></script>
 <script src="js/engine/return-parser.js"></script>
+<script src="js/engine/pln-parser.js"></script>
 <script src="js/renderers/advisor.js"></script>
 <script src="js/renderers/client-report.js"></script>
+<script src="js/renderers/cch-tieback.js"></script>
 <script src="js/renderers/slideshow.js"></script>
 <script src="js/renderers/pitch-deck.js"></script>
 <script src="js/app.js"></script>

@@ -159,6 +159,70 @@
     });
   }
 
+  /* ------------------------ strategy conflicts --------------------------- */
+  // Built from each strategy's conflictsWith declaration (validated symmetric
+  // by scripts/validate-strategies.js, but symmetrized here anyway). The UI
+  // disables a conflicting checkbox while its counterpart is checked, and
+  // compute() refuses to run a scenario containing a conflicting pair.
+  var CONFLICTS = {}; // id -> { otherId: note }
+
+  function buildConflictMap() {
+    TSIQ.STRATEGIES.forEach(function (s) { CONFLICTS[s.id] = {}; });
+    TSIQ.STRATEGIES.forEach(function (s) {
+      (s.conflictsWith || []).forEach(function (otherId) {
+        if (!CONFLICTS[otherId]) return; // unknown id — validator reports it
+        var other = TSIQ.getStrategy(otherId);
+        var note = s.conflictNote || (other && other.conflictNote) || '';
+        if (!(otherId in CONFLICTS[s.id])) CONFLICTS[s.id][otherId] = note;
+        if (!(s.id in CONFLICTS[otherId])) CONFLICTS[otherId][s.id] = note;
+      });
+    });
+  }
+
+  function updateConflictLocks(scKey) {
+    var lockedBy = {}; // id -> the checked strategy locking it
+    TSIQ.STRATEGIES.forEach(function (s) {
+      var box = $(scKey + '-' + s.id);
+      if (!box || !box.checked) return;
+      Object.keys(CONFLICTS[s.id] || {}).forEach(function (otherId) {
+        if (!lockedBy[otherId]) lockedBy[otherId] = s;
+      });
+    });
+    TSIQ.STRATEGIES.forEach(function (s) {
+      var box = $(scKey + '-' + s.id);
+      if (!box) return;
+      var locker = lockedBy[s.id];
+      var label = box.parentElement;
+      if (locker && !box.checked) {
+        var note = CONFLICTS[locker.id][s.id];
+        box.disabled = true;
+        label.classList.add('conflict-locked');
+        label.title = 'Conflicts with ' + locker.name + (note ? ' — ' + note : '');
+      } else {
+        box.disabled = false;
+        label.classList.remove('conflict-locked');
+        label.removeAttribute('title');
+      }
+    });
+  }
+
+  // Defense in depth: imports or stale UI state could still produce a
+  // conflicting pair — never compute (or print) an impossible plan.
+  function conflictErrors(selections, scenarioLabel) {
+    var errs = [];
+    for (var i = 0; i < selections.length; i++) {
+      for (var j = i + 1; j < selections.length; j++) {
+        var a = selections[i].strategy, b = selections[j].strategy;
+        if (CONFLICTS[a.id] && (b.id in CONFLICTS[a.id])) {
+          var note = CONFLICTS[a.id][b.id];
+          errs.push(scenarioLabel + ': "' + a.name + '" conflicts with "' + b.name + '"' +
+            (note ? ' — ' + note : ''));
+        }
+      }
+    }
+    return errs;
+  }
+
   /* ------------------------ scenario builders UI ------------------------- */
   function paramInput(scKey, strategy, inp) {
     var id = scKey + '-' + strategy.id + '-' + inp.key;
@@ -194,8 +258,10 @@
     TSIQ.STRATEGIES.forEach(function (s) {
       $(scKey + '-' + s.id).addEventListener('change', function (e) {
         $(scKey + '-' + s.id + '-params').style.display = e.target.checked ? 'grid' : 'none';
+        updateConflictLocks(scKey);
       });
     });
+    updateConflictLocks(scKey);
   }
 
   function readSelections(scKey) {
@@ -219,13 +285,14 @@
     return {
       filingStatus: $('filingStatus').value,
       wages: num('wages'),
+      ownerWages: num('ownerWages'),
       scheduleCNet: num('scheduleCNet'),
       passthroughK1: num('passthroughK1'),
       entityW2Wages: num('entityW2Wages'),
       isSSTB: $('isSSTB').checked,
       rentalNet: num('rentalNet'),
       rentalLossesUsable: $('rentalLossesUsable').checked,
-      ltcg: num('ltcg'), qualDiv: num('qualDiv'),
+      ltcg: num('ltcg'), ltcgOneTime: $('ltcgOneTime').checked, qualDiv: num('qualDiv'),
       interest: num('interest'), otherIncome: num('otherIncome'),
       propertyTax: num('propertyTax'), mortgageInterest: num('mortgageInterest'),
       charitable: num('charitable'), otherItemized: num('otherItemized'),
@@ -446,8 +513,17 @@
     var years = Math.min(30, Math.max(1, Math.round(num('years')) || 10));
     var growthRate = num('growthPct') / 100;
 
-    var scenarios = [];
     var selA = readSelections('sc2');
+    var selB = readSelections('sc3');
+    var conflictMsgs = conflictErrors(selA, $('sc2-label').value || 'Scenario 2')
+      .concat(conflictErrors(selB, $('sc3-label').value || 'Scenario 3'));
+    if (conflictMsgs.length) {
+      alert('Conflicting strategies are selected:\n\n' + conflictMsgs.join('\n') +
+        '\n\nUncheck one of each pair before computing.');
+      return null;
+    }
+
+    var scenarios = [];
     if (selA.length) {
       scenarios.push({
         label: $('sc2-label').value || 'Scenario 2',
@@ -456,7 +532,6 @@
         result: TSIQ.computeScenario(profile, selA, years, growthRate)
       });
     }
-    var selB = readSelections('sc3');
     if (selB.length) {
       scenarios.push({
         label: $('sc3-label').value || 'Scenario 3',
@@ -486,12 +561,12 @@
 
   /* --------------------- client file import / export --------------------- */
   // Format documented in docs/client-file-format.md (tsiq-client-v1).
-  var PROFILE_FIELD_IDS = ['filingStatus', 'wages', 'scheduleCNet', 'passthroughK1',
+  var PROFILE_FIELD_IDS = ['filingStatus', 'wages', 'ownerWages', 'scheduleCNet', 'passthroughK1',
     'entityW2Wages', 'rentalNet', 'ltcg', 'qualDiv', 'interest', 'otherIncome',
     'propertyTax', 'mortgageInterest', 'charitable', 'otherItemized',
     'kidsCTC', 'otherDeps', 'fedWithholding', 'fedEstimates',
     'stateWithholding', 'stateEstimates', 'stateRatePct', 'years', 'growthPct'];
-  var PROFILE_CHECKBOX_IDS = ['isSSTB', 'rentalLossesUsable'];
+  var PROFILE_CHECKBOX_IDS = ['isSSTB', 'rentalLossesUsable', 'ltcgOneTime'];
 
   // Restore every client-data field to its pristine (HTML-default) state and
   // clear anything computed from the previous client. Called before ANY
@@ -512,10 +587,76 @@
       }
     });
     PROFILE_CHECKBOX_IDS.forEach(function (id) { $(id).checked = $(id).defaultChecked; });
+    resetScenario('sc2');
+    resetScenario('sc3');
+    $('sc2-label').value = $('sc2-label').defaultValue;
+    $('sc3-label').value = $('sc3-label').defaultValue;
+    $('feePlanning').value = $('feePlanning').defaultValue;
+    $('feeAnnual').value = $('feeAnnual').defaultValue;
     renderSuggestions(null, null);
     lastRun = null;
-    $('results').innerHTML = '';
+    $('results').innerHTML = '<p class="hint">Run a comparison to see the baseline vs. ' +
+      'scenario columns and the multi-year projection.</p>';
     $('output-actions').style.display = 'none';
+  }
+
+  // Uncheck every strategy in one scenario, restore param defaults, and
+  // release any conflict locks.
+  function resetScenario(scKey) {
+    TSIQ.STRATEGIES.forEach(function (s) {
+      var box = $(scKey + '-' + s.id);
+      if (!box) return;
+      box.checked = false;
+      $(scKey + '-' + s.id + '-params').style.display = 'none';
+      s.inputs.forEach(function (inp) {
+        var el = $(scKey + '-' + s.id + '-' + inp.key);
+        if (el) el.value = inp.default;
+      });
+    });
+    updateConflictLocks(scKey);
+  }
+
+  // Capture one scenario's checked strategies + params for the client file,
+  // so a plan can be reopened next quarter exactly as it was built.
+  function readPlanScenario(scKey) {
+    var out = { label: $(scKey + '-label').value, selections: [] };
+    TSIQ.STRATEGIES.forEach(function (s) {
+      var box = $(scKey + '-' + s.id);
+      if (!box || !box.checked) return;
+      var params = {};
+      s.inputs.forEach(function (inp) {
+        var el = $(scKey + '-' + s.id + '-' + inp.key);
+        if (el) params[inp.key] = (inp.type === 'select') ? el.value : parseFloat(el.value) || 0;
+      });
+      out.selections.push({ id: s.id, params: params });
+    });
+    return out;
+  }
+
+  // Restore a saved scenario. Skips unknown strategies and any selection the
+  // conflict locks reject, reporting both via `problems`.
+  function applyPlanScenario(scKey, sc, problems) {
+    if (!sc) return;
+    if (sc.label) $(scKey + '-label').value = sc.label;
+    (sc.selections || []).forEach(function (sel) {
+      var s = TSIQ.getStrategy(sel.id);
+      var box = s && $(scKey + '-' + s.id);
+      if (!box) {
+        problems.push('Saved plan references an unknown strategy "' + sel.id + '" — skipped.');
+        return;
+      }
+      if (box.disabled) {
+        problems.push('"' + s.name + '" conflicts with another strategy in the saved plan — skipped.');
+        return;
+      }
+      if (!box.checked) box.click(); // fires the change handler: params + conflict locks
+      Object.keys(sel.params || {}).forEach(function (k) {
+        var input = $(scKey + '-' + s.id + '-' + k);
+        if (input) input.value = sel.params[k];
+      });
+      var det = box.closest('details');
+      if (det) det.open = true;
+    });
   }
 
   function exportClientFile() {
@@ -525,6 +666,10 @@
       data.profile[id] = (el.type === 'number') ? (parseFloat(el.value) || 0) : el.value;
     });
     PROFILE_CHECKBOX_IDS.forEach(function (id) { data.profile[id] = $(id).checked; });
+    data.plan = {
+      scenarios: { sc2: readPlanScenario('sc2'), sc3: readPlanScenario('sc3') },
+      fees: { planning: num('feePlanning'), annual: num('feeAnnual') }
+    };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -588,7 +733,16 @@
       var p = data.profile || {};
       PROFILE_FIELD_IDS.forEach(function (id) { if (p[id] !== undefined) $(id).value = p[id]; });
       PROFILE_CHECKBOX_IDS.forEach(function (id) { if (p[id] !== undefined) $(id).checked = !!p[id]; });
-      renderSuggestions(data.suggestedStrategies, data.notes);
+      var problems = [];
+      if (data.plan) {
+        var sc = data.plan.scenarios || {};
+        applyPlanScenario('sc2', sc.sc2, problems);
+        applyPlanScenario('sc3', sc.sc3, problems);
+        var fees = data.plan.fees || {};
+        if (fees.planning !== undefined) $('feePlanning').value = fees.planning;
+        if (fees.annual !== undefined) $('feeAnnual').value = fees.annual;
+      }
+      renderSuggestions(data.suggestedStrategies, (data.notes || []).concat(problems));
       window.scrollTo(0, 0);
     };
     reader.readAsText(file);
@@ -671,6 +825,136 @@
     });
   }
 
+  /* ------------------ CCH Planner (.pln) import + review ------------------ */
+  // Section 1 input ids a .pln can populate; labels come from the form itself.
+  var PLN_FIELD_IDS = ['wages', 'ownerWages', 'scheduleCNet', 'passthroughK1',
+    'entityW2Wages', 'rentalNet', 'ltcg', 'qualDiv', 'interest', 'otherIncome',
+    'propertyTax', 'mortgageInterest', 'charitable', 'otherItemized',
+    'kidsCTC', 'otherDeps', 'fedWithholding', 'fedEstimates',
+    'stateWithholding', 'stateEstimates'];
+
+  function clientNameFromPlnMeta(meta) {
+    var name = (meta.taxpayerName || '').trim();
+    var spouse = (meta.spouseName || '').trim();
+    if (spouse) name += (name ? ' & ' : '') + spouse;
+    return name || (meta.clientId || 'Client');
+  }
+
+  function renderPlnReview(result, fileName) {
+    var meta = result.meta || {};
+    var cases = (result.cases || []).filter(function (c) { return (c.years || []).length; });
+    if (!cases.length) {
+      alert('No plan case data could be read from that .pln file.' +
+        ((result.warnings || []).length ? '\n\n' + result.warnings.join('\n') : ''));
+      return;
+    }
+    var host = $('pln-review-body');
+    host.innerHTML =
+      '<h2 style="font-weight:500;margin-bottom:4px">Review CCH Planner import</h2>' +
+      '<p class="hint" style="color:var(--muted);font-size:13px;margin-bottom:14px">' +
+      esc(fileName) +
+      (meta.taxpayerName ? ' &middot; ' + esc(clientNameFromPlnMeta(meta)) : '') +
+      (meta.version ? ' &middot; Planning v' + esc(meta.version) : '') +
+      ' &middot; read directly from the file (no AI). Pick the case and year column to import, ' +
+      'verify each figure against the Planner, then Apply. Applying first RESETS the client ' +
+      'form (including client name), so nothing from a previous client can carry over.</p>' +
+      '<div class="grid" style="margin-bottom:14px">' +
+      '<div class="field"><label for="plnr-case">Planner case</label><select id="plnr-case">' +
+      cases.map(function (c, i) {
+        return '<option value="' + i + '">' + esc(c.name || ('Case ' + (i + 1))) + '</option>';
+      }).join('') + '</select></div>' +
+      '<div class="field"><label for="plnr-year">Year column</label><select id="plnr-year"></select></div>' +
+      '</div>' +
+      '<div id="plnr-grid"></div>' +
+      '<div class="actions"><button class="primary" id="plnr-apply">Apply to Client Data</button></div>';
+
+    function currentYear() {
+      var c = cases[parseInt($('plnr-case').value, 10) || 0];
+      return c && (c.years || [])[parseInt($('plnr-year').value, 10) || 0];
+    }
+    function fillYears() {
+      var c = cases[parseInt($('plnr-case').value, 10) || 0];
+      $('plnr-year').innerHTML = (c.years || []).map(function (y, i) {
+        return '<option value="' + i + '">' + esc(String(y.year || ('Year ' + (i + 1)))) + '</option>';
+      }).join('');
+    }
+    function renderGrid() {
+      var y = currentYear();
+      if (!y) { $('plnr-grid').innerHTML = '<p class="hint">No data in this column.</p>'; return; }
+      var f = y.fields || {};
+      var html = '<div class="grid" style="margin-bottom:16px">';
+      if (f.filingStatus) {
+        html += '<div class="field"><label>Filing status</label><select id="plnv-filingStatus">' +
+          ['mfj', 'single', 'hoh', 'mfs'].map(function (s) {
+            return '<option value="' + s + '"' + (f.filingStatus === s ? ' selected' : '') + '>' +
+              esc(TSIQ.FILING_STATUS_LABELS[s]) + '</option>';
+          }).join('') + '</select></div>';
+      }
+      PLN_FIELD_IDS.forEach(function (id) {
+        if (f[id] === undefined || f[id] === null) return;
+        html += '<div class="field"><label>' + esc(fieldLabel($(id))) + '</label>' +
+          '<input type="number" id="plnv-' + id + '" value="' + Math.round(f[id]) + '"></div>';
+      });
+      html += '</div>';
+      var ref = y.reference || {};
+      var refRows = [
+        ['Total income', ref.totalIncome], ['AGI', ref.agi],
+        ['Deduction', ref.deduction], ['QBI deduction', ref.qbiDeduction],
+        ['Taxable income', ref.taxableIncome], ['Total tax', ref.totalTax],
+        ['SE tax', ref.seTax], ['State tax', ref.stateTax]
+      ].filter(function (r) { return r[1] !== null && r[1] !== undefined; });
+      if (refRows.length) {
+        html += '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.8px;color:var(--accent);margin-bottom:8px">Cross-check — what the Planner file itself computed</h3>' +
+          '<table class="results-table" style="margin-bottom:14px"><tbody>' +
+          refRows.map(function (r) {
+            return '<tr><td>' + esc(r[0]) + '</td><td>' + usd(r[1]) + '</td></tr>';
+          }).join('') + '</tbody></table>';
+      }
+      if ((result.warnings || []).length) {
+        html += '<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.8px;color:var(--accent);margin-bottom:8px">Review notes</h3>' +
+          '<ul class="notes" style="margin-bottom:14px">' +
+          result.warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>';
+      }
+      $('plnr-grid').innerHTML = html;
+    }
+
+    $('plnr-case').addEventListener('change', function () { fillYears(); renderGrid(); });
+    $('plnr-year').addEventListener('change', renderGrid);
+    fillYears();
+    renderGrid();
+    $('pln-review-modal').classList.add('open');
+
+    $('plnr-apply').addEventListener('click', function () {
+      var y = currentYear();
+      if (!y) return;
+      resetClientForm();
+      $('clientName').value = clientNameFromPlnMeta(meta);
+      var fsEl = $('plnv-filingStatus');
+      if (fsEl) $('filingStatus').value = fsEl.value;
+      PLN_FIELD_IDS.forEach(function (id) {
+        var el = $('plnv-' + id);
+        if (el) $(id).value = el.value;
+      });
+      $('pln-review-modal').classList.remove('open');
+      runSuggestions(result.warnings);
+      window.scrollTo(0, 0);
+    });
+  }
+
+  function importPlnFile(file) {
+    if (!TSIQ.parsePlnFile) {
+      alert('The CCH Planner import module (js/engine/pln-parser.js) is missing.');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () {
+      TSIQ.parsePlnFile(new Uint8Array(reader.result))
+        .then(function (result) { renderPlnReview(result, file.name); })
+        .catch(function (e) { alert('Could not read that .pln file: ' + e.message); });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   // Deterministic strategy screening over whatever is in the form now.
   function runSuggestions(extraNotes) {
     var suggestions = TSIQ.suggestStrategies(readProfile());
@@ -710,6 +994,7 @@
     initBrand();
     initTabs();
     buildLibrary();
+    buildConflictMap();
     buildScenarioPicker('sc2', 'sc2-strategies');
     buildScenarioPicker('sc3', 'sc3-strategies');
     $('compute').addEventListener('click', compute);
@@ -732,6 +1017,18 @@
     $('pdf-review-close').addEventListener('click', function () { $('pdf-review-modal').classList.remove('open'); });
     $('pdf-review-modal').addEventListener('click', function (e) {
       if (e.target === $('pdf-review-modal')) $('pdf-review-modal').classList.remove('open');
+    });
+    $('btn-import-pln').addEventListener('click', function () { $('import-pln-file').click(); });
+    $('import-pln-file').addEventListener('change', function (e) {
+      if (e.target.files && e.target.files[0]) importPlnFile(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('pln-review-close').addEventListener('click', function () { $('pln-review-modal').classList.remove('open'); });
+    $('pln-review-modal').addEventListener('click', function (e) {
+      if (e.target === $('pln-review-modal')) $('pln-review-modal').classList.remove('open');
+    });
+    $('btn-tieback').addEventListener('click', function () {
+      if (compute({ noScroll: true })) TSIQ.render.cchTieback(lastRun);
     });
     $('btn-suggest').addEventListener('click', function () { runSuggestions(); });
     $('btn-export').addEventListener('click', exportClientFile);

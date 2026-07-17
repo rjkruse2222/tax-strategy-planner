@@ -52,8 +52,14 @@ Disclose these when relevant rather than silently pretending they're handled.
 
 ## Known caveats for advisors
 
-- No enforcement of mutually exclusive strategy combinations yet (e.g., don't
-  select multiple overlapping retirement plans in one scenario — the §415(c)
-  limit is applied per-strategy, not shared). Read the planning notes.
-- Section 1 has no field for existing owner W-2 wages from the client's own
-  S-corp (`ownerWages` is only synthesized by the S-corp election strategy).
+- Mutually exclusive strategy combinations are enforced via `conflictsWith`
+  declarations (see the authoring spec) — the UI disables conflicting
+  checkboxes and Run Comparison blocks conflicting pairs. Conflicts cover
+  double-counting and legal incompatibility, not every unwise pairing — read
+  the planning notes.
+- `ownerWages` (existing S-corp owner salary) is a Section 1 input; include
+  it in the entity W-2 wages field too for the §199A wage limit.
+- CCH round-trip: `.pln` import reads a ProSystem fx Planning file
+  (js/engine/pln-parser.js, format notes in docs/pln-format-notes.md); the
+  CCH Tie-Back Sheet (js/renderers/cch-tieback.js) maps post-strategy
+  profiles back to Planning input rows for verification there.

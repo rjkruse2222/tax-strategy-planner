@@ -27,15 +27,35 @@ and everything is theirs.
 
 ## Importing a prior-year return
 
-Two ways to get a return into the app:
+Three ways to get a return into the app:
 
+- **Import CCH Planner (.pln)** — reads a CCH ProSystem fx Planning plan file
+  directly in your browser. Pick the case and year column, review every
+  figure against the Planner's own computed lines, then Apply.
 - **Import Return (PDF)** — reads a software-generated return PDF directly in
   your browser (nothing leaves your computer, no AI involved). Parsed figures
   appear in a review screen with the return's own AGI/taxable-income/total-tax
   lines for tie-out; nothing fills in until you click Apply. Scanned returns
   aren't supported (no text layer) — use the Claude workflow for those.
 - **Import Client File** — loads a `.tsiq.json` produced by the Claude review
-  workflow (which also suggests strategies with reasons) or by Export.
+  workflow (which also suggests strategies with reasons) or by Export. Export
+  now saves the whole plan (scenario selections, parameters, labels, fees), so
+  a client's plan can be reopened later exactly as built.
+
+Every import **resets the client form first** — a new client can never inherit
+values from the previous one.
+
+## Round-trip with CCH Planning
+
+The intended loop for CCH shops: build the plan in Planning → **Import CCH
+Planner (.pln)** here → model strategies and print the comparison → click
+**CCH Planner Tie-Back Sheet** (next to the report buttons) to get each
+scenario's post-strategy input values per year, labeled with Planning row
+names → key them into Planner cases (Baseline → Case 1, Scenario 2 → Case 2…)
+and let CCH verify the numbers with its full engine for the final client
+deliverable. Small differences are expected (this tool doesn't model AMT,
+SS-taxability phase-ins, or state detail); large ones mean a keying or
+modeling gap.
 
 ## How to use it
 

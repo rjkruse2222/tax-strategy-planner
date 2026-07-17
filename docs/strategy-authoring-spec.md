@@ -96,7 +96,8 @@ unless the note is year-specific.
 | Field | Meaning |
 |---|---|
 | `wages` | outside W-2 wages |
-| `ownerWages` | W-2 wages from client's own entity (engine charges both FICA halves) |
+| `ownerWages` | W-2 wages from client's own entity (engine charges both FICA halves; also a Section 1 input for clients who already run an S-corp) |
+| `ltcgOneTime` | true = the entered `ltcg` is a one-time sale; the scenario engine zeroes it in projection years 2+ |
 | `scheduleCNet` | sole-prop net profit (SE tax + QBI) |
 | `passthroughK1` | S-corp/partnership ordinary income (QBI, no SE) |
 | `entityW2Wages` | entity W-2 wages, drives §199A wage limit |
@@ -119,6 +120,26 @@ suspended-loss pattern) — namespace your keys (`state.myStrategyThing`).
 
 `inputs[]` entries: `{ key, label, type: 'currency'|'percent'|'number'|'select',
 default, max?, options? }`.
+
+## Conflicts (`conflictsWith` / `conflictNote`)
+
+When two strategies double-count the same dollars (two retirement plans
+applying §415(c) independently, two SEHI patterns for the same premiums) or
+are legally incompatible (SIMPLE exclusive-plan rule, ICHRA vs. QSEHRA,
+S-corp vs. C-corp election), declare it:
+
+```js
+applyOrder: 62,
+conflictsWith: ['sep-ira', 'simple-ira'],
+conflictNote: 'Each plan applies the §415(c) limit independently — selecting both double-counts it.',
+```
+
+Rules: declarations must be **symmetric** (if A lists B, B must list A — the
+validator enforces this and that every id exists). The app disables the
+conflicting checkbox while its counterpart is checked (tooltip shows the
+note), and Run Comparison refuses scenarios containing a conflicting pair.
+Use conflicts for genuine double-count/illegality — mere "usually not
+combined" advice belongs in notes.
 
 ## Modeling honesty rules
 
