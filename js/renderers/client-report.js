@@ -78,6 +78,12 @@ TSIQ.render = TSIQ.render || {};
     '.rail .lbl{font-family:' + SANS + ';font-size:7pt;letter-spacing:2px;text-transform:uppercase;' +
     'color:' + railGray() + ';margin-top:6px;line-height:1.6}' +
     '.content{flex:1;min-width:0;display:flex;flex-direction:column}' +
+    '.page-head{display:flex;gap:26px;align-items:flex-start;margin-bottom:8px}' +
+    '.hnum{font-family:' + SERIF + ';font-size:30pt;color:' + A + ';line-height:0.9;' +
+    'padding-top:4px;min-width:0.75in}' +
+    '.hnum .hlbl{font-family:' + SANS + ';font-size:6.5pt;letter-spacing:1.6px;' +
+    'text-transform:uppercase;color:' + railGray() + ';margin-top:5px;line-height:1.5;max-width:0.95in}' +
+    '.htext{flex:1;min-width:0}' +
     '.page-body{flex:1;display:flex;flex-direction:column;justify-content:space-between}' +
     '.page-body > .cols:only-child{flex:1}' +
 
@@ -186,17 +192,15 @@ TSIQ.render = TSIQ.render || {};
     return '<div class="page">' +
       '<div class="rh micro"><span>' + esc(opts.firm) + ' &middot; Tax Strategy Plan</span>' +
       '<span>' + esc(opts.context || '') + '</span></div>' +
-      '<div class="body-grid">' +
-      '<div class="rail"><div class="num">' + opts.num + '</div>' +
-      '<div class="lbl">' + esc(opts.railLabel) + '</div></div>' +
-      '<div class="content">' +
       '<div class="page-head">' +
+      '<div class="hnum">' + opts.num +
+      '<div class="hlbl">' + esc(opts.railLabel) + '</div></div>' +
+      '<div class="htext">' +
       '<div class="eyebrow">' + opts.eyebrow + '</div>' +
       '<h1 class="disp">' + opts.headline + '</h1>' +
       '<div class="orn"><div class="d"></div><div class="l"></div></div>' +
-      '</div>' +
-      '<div class="page-body">' + opts.body + '</div>' +
       '</div></div>' +
+      '<div class="page-body">' + opts.body + '</div>' +
       '<div class="rf micro"><span>Private &amp; Confidential &middot; Prepared for ' +
       esc(opts.client) + '</span><span>Page __PG__ of __PGTOT__</span></div>' +
       '</div>';
@@ -476,19 +480,20 @@ TSIQ.render = TSIQ.render || {};
       '<style>' + css() + '</style></head><body>' +
       '<div class="page">' +
       '<div class="rh micro"><span>' + esc(firmName) + '</span><span>Strategy Overview</span></div>' +
-      '<div class="body-grid"><div class="rail"><div class="num">&#9670;</div>' +
-      '<div class="lbl">' + esc(strategy.category) + '</div></div>' +
-      '<div class="content">' +
+      '<div class="page-head">' +
+      '<div class="hnum">&#9670;</div>' +
+      '<div class="htext">' +
       '<div class="eyebrow">' + esc(strategy.category) + '</div>' +
       '<h1 class="disp">' + accentHeadline(strategy.name) + '</h1>' +
       '<div class="orn"><div class="d"></div><div class="l"></div></div>' +
+      '</div></div>' +
       '<p class="lede">' + esc(strategy.client.headline) + '</p>' +
       strategyBody(strategy, null) +
       '<div class="disclaimer">This overview is educational and describes a strategy in general ' +
       'terms. Whether it fits your situation — and what it is worth — depends on your full tax ' +
       'picture, which we evaluate as part of your plan. ' + esc(firmName) + ' handles eligibility, ' +
       'implementation, and documentation requirements with you.</div>' +
-      '</div></div></div></body></html>';
+      '</div></body></html>';
 
     var w = window.open('', '_blank');
     if (!w) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
@@ -641,10 +646,10 @@ TSIQ.render = TSIQ.render || {};
       '<div class="chart-title">Your tax bill &middot; with and without the plan</div>' +
       '<div class="legend"><span class="sw" style="background:' + anchor() + '"></span>Without plan' +
       '<span class="sw" style="background:' + accentLight() + '"></span>With plan</div>' +
-      burdenBarChart(data.baseline, best, data.years, 370, 380) +
+      burdenBarChart(data.baseline, best, data.years, 440, 380) +
       '</div><div class="col">' +
       '<div class="chart-title">Cumulative savings &middot; ' + data.years + ' years</div>' +
-      cumSavingsChart(data.baseline, best, data.years, 370, 392) +
+      cumSavingsChart(data.baseline, best, data.years, 440, 392) +
       '</div></div>' +
       '<p style="font-size:9.5pt;color:#556270;margin-top:8px">Savings compound: every dollar that ' +
       'does not leave in April keeps working in your business and your investments. The projection ' +
