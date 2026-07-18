@@ -57,8 +57,8 @@ TSIQ.render = TSIQ.render || {};
     '@page{size:11in 8.5in;margin:0}' +
     'body{font-family:Georgia,serif;color:#22303f;font-size:10pt;line-height:1.5;' +
     '-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff}' +
-    '.page{width:11in;height:8.5in;padding:0.55in 0.7in 0.7in;position:relative;' +
-    'page-break-after:always;overflow:hidden}' +
+    '.page{width:11in;height:8.5in;padding:0.55in 0.7in 0.65in;position:relative;' +
+    'page-break-after:always;overflow:hidden;display:flex;flex-direction:column}' +
     '.page:last-child{page-break-after:auto}' +
 
     /* micro type */
@@ -72,12 +72,14 @@ TSIQ.render = TSIQ.render || {};
     'justify-content:space-between;color:#9aa5b1}' +
 
     /* left rail + content grid */
-    '.body-grid{display:flex;gap:0.35in}' +
+    '.body-grid{display:flex;gap:0.35in;flex:1;min-height:0}' +
     '.rail{width:1.35in;flex:none}' +
     '.rail .num{font-family:' + SERIF + ';font-size:26pt;color:' + A + ';line-height:1}' +
     '.rail .lbl{font-family:' + SANS + ';font-size:7pt;letter-spacing:2px;text-transform:uppercase;' +
     'color:' + railGray() + ';margin-top:6px;line-height:1.6}' +
-    '.content{flex:1;min-width:0}' +
+    '.content{flex:1;min-width:0;display:flex;flex-direction:column}' +
+    '.page-body{flex:1;display:flex;flex-direction:column;justify-content:space-between}' +
+    '.page-body > .cols:only-child{flex:1}' +
 
     /* display headline with italic accent */
     'h1.disp{font-family:' + SERIF + ';font-weight:400;font-size:25pt;letter-spacing:1px;' +
@@ -86,23 +88,23 @@ TSIQ.render = TSIQ.render || {};
     '.orn{display:flex;align-items:center;gap:8px;margin:10px 0 14px}' +
     '.orn .d{width:7px;height:7px;background:' + AL + ';transform:rotate(45deg)}' +
     '.orn .l{height:1px;background:' + HAIR + ';width:2.2in}' +
-    '.lede{font-size:10.5pt;color:#33404e;max-width:7.4in;margin-bottom:16px}' +
+    '.lede{font-size:11pt;color:#33404e;max-width:7.6in;margin-bottom:14px}' +
     '.lede strong,.callout strong,p strong{color:' + A + '}' +
 
     /* stat rows: tiny label over serif value, hairline-separated columns */
     '.statrow{display:flex;border-top:1px solid ' + HAIR + ';border-bottom:1px solid ' + HAIR + ';' +
     'margin:14px 0}' +
-    '.stat{flex:1;padding:9px 14px 10px;border-left:1px solid ' + HAIR + '}' +
+    '.stat{flex:1;padding:13px 16px 14px;border-left:1px solid ' + HAIR + '}' +
     '.stat:first-child{border-left:none;padding-left:0}' +
     '.stat .l{font-family:' + SANS + ';font-size:6.8pt;letter-spacing:1.8px;text-transform:uppercase;' +
     'color:' + INKMUTE + ';margin-bottom:3px}' +
-    '.stat .v{font-family:' + SERIF + ';font-size:15pt;color:' + A + '}' +
+    '.stat .v{font-family:' + SERIF + ';font-size:17pt;color:' + A + '}' +
     '.stat .v.neg{color:' + RED + '}' +
     '.stat .s{font-family:' + SANS + ';font-size:7.5pt;color:' + INKMUTE + ';margin-left:6px}' +
 
     /* navy hero panel */
     '.hero{background:' + A + ';color:#fff;border-left:5px solid ' + AL + ';' +
-    'padding:20px 26px 22px;margin:16px 0}' +
+    'padding:26px 30px 28px;margin:16px 0}' +
     '.hero .ht{font-family:' + SANS + ';font-size:7.2pt;letter-spacing:2.2px;text-transform:uppercase;' +
     'color:' + AL + ';margin-bottom:10px}' +
     '.hero p{color:#e8edf3;font-size:10.5pt;max-width:8in}' +
@@ -110,13 +112,13 @@ TSIQ.render = TSIQ.render || {};
     '.hero .cell{flex:1;padding-right:20px}' +
     '.hero .cell .l{font-family:' + SANS + ';font-size:6.8pt;letter-spacing:1.8px;text-transform:uppercase;' +
     'color:#9db4cc;margin-bottom:4px}' +
-    '.hero .cell .v{font-family:' + SERIF + ';font-size:21pt;color:#fff}' +
-    '.hero .cell .v.big{font-size:30pt}' +
+    '.hero .cell .v{font-family:' + SERIF + ';font-size:23pt;color:#fff}' +
+    '.hero .cell .v.big{font-size:34pt}' +
     '.hero .cell .s{font-family:' + SANS + ';font-size:7.5pt;color:#9db4cc;margin-top:2px}' +
 
     /* tables */
-    'table{width:100%;border-collapse:collapse;margin:10px 0;font-size:9pt;font-family:' + SANS + '}' +
-    'th,td{padding:5.5px 9px;border-bottom:1px solid ' + HAIR + ';text-align:right}' +
+    'table{width:100%;border-collapse:collapse;margin:10px 0;font-size:9.5pt;font-family:' + SANS + '}' +
+    'th,td{padding:8px 10px;border-bottom:1px solid ' + HAIR + ';text-align:right}' +
     'th:first-child,td:first-child{text-align:left}' +
     'thead th{font-size:6.8pt;letter-spacing:1.6px;text-transform:uppercase;color:' + INKMUTE + ';' +
     'border-bottom:2px solid ' + A + ';font-weight:600}' +
@@ -124,13 +126,15 @@ TSIQ.render = TSIQ.render || {};
     'td.acc{color:' + A + ';font-weight:700}' +
     'td.neg,.neg{color:' + RED + '}' +
     'tbody tr.hl td{background:' + PB + '}' +
+    'table.dense{font-size:8.8pt}table.dense th,table.dense td{padding:5px 9px}' +
 
     /* callout note with left accent bar */
-    '.callout{background:' + PB + ';border-left:4px solid ' + AL + ';padding:10px 14px;' +
-    'margin:12px 0;font-size:9.5pt;font-family:' + SANS + ';color:#33404e}' +
+    '.callout{background:' + PB + ';border-left:4px solid ' + AL + ';padding:14px 17px;' +
+    'margin:12px 0;font-size:10pt;font-family:' + SANS + ';color:#33404e}' +
 
     /* two-column layout on landscape pages */
     '.cols{display:flex;gap:0.4in}.col{flex:1;min-width:0}' +
+    '.cols.fill .col{display:flex;flex-direction:column;justify-content:space-between}' +
 
     /* strategy pages */
     '.sub-serif{font-family:' + SERIF + ';font-size:12.5pt;color:' + A + ';margin:10px 0 6px}' +
@@ -186,10 +190,12 @@ TSIQ.render = TSIQ.render || {};
       '<div class="rail"><div class="num">' + opts.num + '</div>' +
       '<div class="lbl">' + esc(opts.railLabel) + '</div></div>' +
       '<div class="content">' +
+      '<div class="page-head">' +
       '<div class="eyebrow">' + opts.eyebrow + '</div>' +
       '<h1 class="disp">' + opts.headline + '</h1>' +
       '<div class="orn"><div class="d"></div><div class="l"></div></div>' +
-      opts.body +
+      '</div>' +
+      '<div class="page-body">' + opts.body + '</div>' +
       '</div></div>' +
       '<div class="rf micro"><span>Private &amp; Confidential &middot; Prepared for ' +
       esc(opts.client) + '</span><span>Page __PG__ of __PGTOT__</span></div>' +
@@ -394,7 +400,7 @@ TSIQ.render = TSIQ.render || {};
 
   function attributionTable(steps, years) {
     var totY = 0, totC = 0;
-    var html = '<table><thead><tr><th style="width:26%">Strategy</th><th style="text-align:left">What it does</th>' +
+    var html = '<table' + (steps.length >= 6 ? ' class="dense"' : '') + '><thead><tr><th style="width:26%">Strategy</th><th style="text-align:left">What it does</th>' +
       '<th style="width:14%">First-year value</th><th style="width:14%">' + years + '-year value</th>' +
       '</tr></thead><tbody>';
     steps.forEach(function (st) {
@@ -603,20 +609,21 @@ TSIQ.render = TSIQ.render || {};
       'Where You Stand <em>Today.</em>', 'Current Position',
       '<div class="cols"><div class="col">' +
       incomeCompositionTable(baseYr1) +
+      '</div>' +
+      '<div class="col">' + comparisonTable(data.baseline, data.scenarios) + '</div></div>' +
       '<div class="callout">Your projected tax is <strong>' + usd(baseYr1.totalBurden) +
       '</strong> — an effective rate of <strong>' + (effBase * 100).toFixed(1) + '%</strong>' +
       (marginal > 0.2
         ? '. At the margin it is worse: of the <em>next</em> $1,000 you earn, about <strong>' +
           usd(1000 - marginal * 1000) + '</strong> stays with you.'
         : '.') +
-      '</div></div>' +
-      '<div class="col">' + comparisonTable(data.baseline, data.scenarios) +
+      '</div>' +
       '<p style="font-size:8.5pt;color:' + INKMUTE + '">' +
       (data.scenarios.length > 1
         ? 'Both modeled combinations shown; the pages that follow walk through the recommended one (' +
           esc(best.label) + ') strategy by strategy.'
         : 'The pages that follow walk through the plan strategy by strategy.') +
-      '</p></div></div>'));
+      '</p>'));
 
     /* ---- 03 · Plan at a glance ---- */
     n++;
@@ -634,10 +641,10 @@ TSIQ.render = TSIQ.render || {};
       '<div class="chart-title">Your tax bill &middot; with and without the plan</div>' +
       '<div class="legend"><span class="sw" style="background:' + anchor() + '"></span>Without plan' +
       '<span class="sw" style="background:' + accentLight() + '"></span>With plan</div>' +
-      burdenBarChart(data.baseline, best, data.years, 430, 300) +
+      burdenBarChart(data.baseline, best, data.years, 370, 380) +
       '</div><div class="col">' +
       '<div class="chart-title">Cumulative savings &middot; ' + data.years + ' years</div>' +
-      cumSavingsChart(data.baseline, best, data.years, 430, 312) +
+      cumSavingsChart(data.baseline, best, data.years, 370, 392) +
       '</div></div>' +
       '<p style="font-size:9.5pt;color:#556270;margin-top:8px">Savings compound: every dollar that ' +
       'does not leave in April keeps working in your business and your investments. The projection ' +
@@ -660,10 +667,6 @@ TSIQ.render = TSIQ.render || {};
         '<tr class="total-row"><td>' + data.years + '-year net benefit, after all fees</td>' +
         '<td>' + usd(netBenefit) + '</td></tr>' +
         '</tbody></table>' +
-        '<p style="font-size:9.5pt;color:#556270">The fee buys the analysis in this document, the ' +
-        'implementation of every strategy in it — elections, filings, plan documents, payroll setup, ' +
-        'documentation standards — and ongoing maintenance: annual limit updates, law-change reviews, ' +
-        'and the numbers check we run with you every year.</p>' +
         '</div><div class="col">' +
         (roi >= 1.2
           ? '<div class="hero" style="margin-top:0"><div class="ht">Return on Plan Investment</div>' +
@@ -673,7 +676,16 @@ TSIQ.render = TSIQ.render || {};
             '<div class="s">' + usd(yr1Savings) + ' savings vs. ' + usd(yr1Cost) + ' fee</div></div>' +
             '</div></div>'
           : '') +
-        '</div></div>'));
+        '</div></div>' +
+        statRow([
+          ['Payback period', Math.max(1, Math.ceil(yr1Cost / Math.max(1, yr1Savings / 12))) + ' months'],
+          ['Monthly savings equivalent', usd(yr1Savings / 12) + '/mo'],
+          [data.years + '-year return on fees', (totalFees > 0 ? (cumSavings / totalFees).toFixed(1) : '—') + '&times;']
+        ]) +
+        '<div class="callout">The fee buys the analysis in this document, the implementation of ' +
+        'every strategy in it — elections, filings, plan documents, payroll setup, documentation ' +
+        'standards — and ongoing maintenance: annual limit updates, law-change reviews, and the ' +
+        'numbers check we run with you every year.</div>'));
     }
 
     /* ---- Strategy pages ---- */
@@ -711,7 +723,7 @@ TSIQ.render = TSIQ.render || {};
     n++;
     pages.push(page(n, 'The Outlook', 'The Full Projection &middot; And Our Assumptions',
       'The ' + data.years + '-Year <em>Outlook.</em>', 'Projection Detail',
-      '<div class="cols"><div class="col" style="flex:1.4">' +
+      '<div class="cols fill"><div class="col" style="flex:1.4">' +
       projectionTable(data.baseline, data.scenarios, data.years) +
       '</div><div class="col">' +
       '<div class="sub-serif">Assumptions behind these numbers</div>' +
