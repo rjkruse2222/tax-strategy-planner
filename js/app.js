@@ -901,7 +901,8 @@
       var refRows = [
         ['Total income', ref.totalIncome], ['AGI', ref.agi],
         ['Deduction', ref.deduction], ['QBI deduction', ref.qbiDeduction],
-        ['Taxable income', ref.taxableIncome], ['Total tax', ref.totalTax],
+        ['Taxable income', ref.taxableIncome], ['Income tax (regular)', ref.incomeTax],
+        ['Total tax', ref.totalTax],
         ['SE tax', ref.seTax], ['State tax', ref.stateTax]
       ].filter(function (r) { return r[1] !== null && r[1] !== undefined; });
       if (refRows.length) {

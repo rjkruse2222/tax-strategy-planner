@@ -4,15 +4,19 @@
  * ZIP archive holding three members: FileInfo (plan metadata), FileData (the
  * binary plan database) and <clientid>.log (a text audit log we ignore).
  *
- * The format was reverse-engineered from a real 2025.02000 plan; the record
- * layout, numeric encoding (IEEE-754 float64 LE) and the summary-grid slot
- * offsets are documented in docs/pln-format-notes.md. Everything decoded is a
- * data-entry accelerator for the advisor to CONFIRM on a review screen — never
- * an authority. The plan's own computed rows (total income, AGI, taxable
- * income, total tax) are returned as reference rows so the advisor can tie the
- * parse to CCH in seconds; the parser itself checks those rows tie out
- * (AGI = total income - adjustments; taxable = AGI - deduction - QBI) and drops
- * any case whose grid does not reconcile rather than emit a guessed number.
+ * The format was reverse-engineered from real 2025.02000 and 2026.01000 plans;
+ * the record layout, numeric encoding (IEEE-754 float64 LE), the case/year
+ * chunk structure and the summary-grid slot offsets are documented in
+ * docs/pln-format-notes.md. A plan is a set of cases, each with one or more
+ * year columns; every case-year column decodes to its own {fields, reference}
+ * entry. Everything decoded is a data-entry accelerator for the advisor to
+ * CONFIRM on a review screen — never an authority. The plan's own computed
+ * rows (total income, AGI, taxable income, tax) are returned as reference rows
+ * so the advisor can tie the parse to CCH in seconds; the parser checks those
+ * rows tie out (AGI = total income - adjustments; taxable = AGI - deduction -
+ * QBI; income lines sum to total income; each per-line field must match an
+ * independent second location in the file) and omits, with a warning, anything
+ * that does not reconcile rather than emit a guessed number.
  *
  * ZIP note: real plans deflate FileData with method 9 (Deflate64 / "Enhanced
  * Deflate"), which DecompressionStream cannot inflate. We therefore bundle a
@@ -313,14 +317,51 @@ window.TSIQ = window.TSIQ || {};
     return s;
   }
 
+  /* -------------------------------------------------------------------------
+   * Plan structure. Every 0x0e record carries a (caseId, yearColumn) tag at
+   * payload +0x20/+0x21: caseId 1 is the shared template (labels, activity
+   * names, plan config — no values); caseId N>=2 is plan case N-1. yearColumn
+   * is the 1-based year-column index the chunk's data occupies (a plan case
+   * can have several year columns, each serialized as its own chunk). This
+   * layout is IDENTICAL in 2025.02000 and 2026.01000 — a single-case plan
+   * with three year columns tags them (2,1)(2,2)(2,3); a three-case plan
+   * tags them (2,x)(3,x)(4,x). Verified against the per-chunk case/year
+   * settings record (screen id 207), which carries the case caption, year
+   * caption and the column's tax year.
+   *
+   * Within a chunk the records are partitioned into sections by 0x0a marker
+   * records: section 0 is the federal plan (input screens + computed
+   * worksheets), later sections hold tax-table data and the resident-state
+   * plan (which REUSES the same screen ids, so always read section 0).
+   * ---------------------------------------------------------------------- */
   var SUMMARY_SCREEN_ID = 3;   // the plan-summary grid screen
   var GRID_BASE = 0x63;        // first double of the summary grid, within payload
-  // Validated float64 slot indices within the summary grid (see doc).
+  // Validated float64 slot indices within the summary grid (see doc §5).
+  // Income lines 0..18 sum (with the Schedule E line, slot 210, and excluding
+  // slot 2 = tax-exempt interest) to total income — the identity the parser
+  // checks before emitting any per-line income field.
   var SLOT = {
-    wages: 0, totalIncome: 19, adjustments: 23, agi: 29,
-    ordinaryIncome: 195, preferentialIncome: 210,
+    wages: 0, interest: 1, exemptInterest: 2, dividends: 3, scheduleC: 6,
+    capitalGain: 7, otherGains: 10, otherIncome: 17,
+    totalIncome: 19, adjustmentsA: 23, agi: 29, adjustments: 34,
     taxableBeforeQbi: 108, deduction: 140, taxableIncome: 141, qbiDeduction: 143,
+    ordinaryIncome: 195, scheduleE: 210,
     totalTax: 281
+  };
+  // Screen ids (federal section) with validated fixed offsets.
+  var SCREEN = {
+    caseSettings: 207,  // +0x83 u32 tax year; strings: +0x2c7 case caption, +0x2f3 year caption
+    taxComputation: 29, // Schedule D tax worksheet: +0xab taxable, +0x10b qual div,
+                        // +0x11b net LTCG, +0x123 preferential total, +0x163 ordinary
+                        // portion, +0x293 income tax
+    seWorksheet: 44,    // +0x193 total self-employment (Schedule C) income
+    scheduleA: 35,      // +0x63 property-type taxes, +0x7b income taxes paid,
+                        // +0x93 SALT deducted, +0x9b mortgage interest, +0xa3
+                        // investment interest, +0xbb interest total, +0xd3
+                        // charitable, +0x133 itemized total, +0x14b standard
+    taxesPaidInput: 20, // +0x7b state/local income taxes paid, +0x93 mortgage interest
+    k1Worksheet: 566,   // per instance: +0xbb activity net income (loss)
+    intDivTotals: 675   // +0x63 taxable interest, +0x6b ordinary dividends
   };
 
   function slot(bytes, payload, idx) {
@@ -332,29 +373,82 @@ window.TSIQ = window.TSIQ || {};
   function round2(x) { return Math.round(x * 100) / 100; }
   function near(a, b, tol) { return Math.abs(a - b) <= tol; }
 
-  // Guess filing status from the free-text status caption stored per case
-  // (e.g. "MFJ, 2 Exempt"). Returns one of the app's ids or null.
-  function filingStatusFromChunk(bytes, startPayload, endByte) {
-    // Scan record payloads in [startPayload, endByte) for a status caption.
-    var limit = Math.min(endByte, bytes.length);
-    for (var o = startPayload; o < limit; o++) {
-      // Cheap prefilter: 'M' 'S' 'H' 'Q' start bytes of the tokens we match.
-      var c = bytes[o];
-      if (c !== 0x4d && c !== 0x53 && c !== 0x48 && c !== 0x51) continue;
-      var s = asciiAt(bytes, o, 40);
-      if (!s) continue;
-      if (/\bExempt/.test(s)) {
-        if (/^MFJ|Married Filing Joint|Married filing joint/.test(s)) return 'mfj';
-        if (/^MFS|Married Filing Sep|Married filing sep/.test(s)) return 'mfs';
-        if (/^HOH|Head of Household|Head of household/.test(s)) return 'hoh';
-        if (/^Single/.test(s)) return 'single';
-        if (/^QW|Qualifying/.test(s)) return 'mfj';
-      }
-    }
-    return null;
+  function f64safe(bytes, o) {
+    if (o + 8 > bytes.length) return NaN;
+    var v = f64(bytes, o);
+    return isFinite(v) ? v : NaN;
+  }
+  // f64 field inside a record, NaN when out of range.
+  function fieldAt(bytes, rec, off) {
+    if (!rec || off + 8 > rec.size) return NaN;
+    return f64safe(bytes, rec.payload + off);
+  }
+  // A "[len u8][00][00][text...NUL]" labelled string inside a record.
+  function labelAt(bytes, rec, off) {
+    if (!rec || off + 4 > rec.size) return '';
+    return asciiAt(bytes, rec.payload + off + 3, 60).replace(/\s+$/, '');
   }
 
-  // Detect the plan tax year: mode of plausible year u32s across FileData.
+  // Group 0x0e records into (caseId, yearColumn) chunks, tracking the 0x0a
+  // section markers so federal-section (section 0) records are separable from
+  // the state sections that reuse the same screen ids.
+  function collectChunks(bytes, recs) {
+    var chunks = [], byKey = {}, curKey = null, section = 0;
+    for (var i = 0; i < recs.length; i++) {
+      var r = recs[i];
+      if (r.type === 0x0a) { section++; continue; }
+      if (r.type !== 0x0e || r.size < 0x28) continue;
+      var caseId = bytes[r.payload + 0x20], yearCol = bytes[r.payload + 0x21];
+      var key = caseId + ':' + yearCol;
+      if (key !== curKey) { curKey = key; section = 0; }
+      var ch = byKey[key];
+      if (!ch) {
+        ch = byKey[key] = { caseId: caseId, yearCol: yearCol, recs: [] };
+        chunks.push(ch);
+      }
+      ch.recs.push({ rec: r, section: section,
+        screenId: u16(bytes, r.payload + 0x24), inst: u16(bytes, r.payload + 0x26) });
+    }
+    return chunks;
+  }
+
+  // All federal-section records of a screen id, in instance order.
+  function screens(chunk, id) {
+    var out = [];
+    for (var i = 0; i < chunk.recs.length; i++) {
+      var e = chunk.recs[i];
+      if (e.section === 0 && e.screenId === id) out.push(e.rec);
+    }
+    out.sort(function (a, b) { return a.inst - b.inst; });
+    return out;
+  }
+
+  // Filing-status caption ("MFJ, 2 Exempt") stored per chunk. Returns the
+  // app's filing-status id and the exemption count, or nulls.
+  function filingStatusFromChunk(bytes, chunk) {
+    for (var i = 0; i < chunk.recs.length; i++) {
+      var r = chunk.recs[i].rec;
+      var limit = r.payload + r.size;
+      for (var o = r.payload; o < limit; o++) {
+        var c = bytes[o];
+        if (c !== 0x4d && c !== 0x53 && c !== 0x48 && c !== 0x51) continue;
+        var s = asciiAt(bytes, o, 40);
+        if (!s || !/\bExempt/.test(s)) continue;
+        var status = null;
+        if (/^MFJ|^Married Filing Joint|^Married filing joint/.test(s)) status = 'mfj';
+        else if (/^MFS|^Married Filing Sep|^Married filing sep/.test(s)) status = 'mfs';
+        else if (/^HOH|^Head of Household|^Head of household/.test(s)) status = 'hoh';
+        else if (/^Single/.test(s)) status = 'single';
+        else if (/^QW|^Qualifying/.test(s)) status = 'mfj';
+        if (!status) continue;
+        var m = /(\d+)\s+Exempt/.exec(s);
+        return { status: status, exemptions: m ? parseInt(m[1], 10) : null };
+      }
+    }
+    return { status: null, exemptions: null };
+  }
+
+  // Fallback plan-year detection: mode of plausible year u32s across FileData.
   function detectTaxYear(bytes) {
     var counts = {};
     for (var o = 0; o + 4 <= bytes.length; o++) {
@@ -363,158 +457,332 @@ window.TSIQ = window.TSIQ || {};
     }
     var best = null, bestN = 0;
     for (var y in counts) if (counts[y] > bestN) { bestN = counts[y]; best = +y; }
-    // Require a meaningful number of hits to avoid picking up stray ints.
     return bestN >= 4 ? best : null;
   }
 
-  function decodeCases(bytes, recs, warnings) {
-    // Group 0x0e records by case tag (caseGroup, caseNum).
-    var chunks = {};     // key "g:n" -> { group, num, recs:[], first, last }
-    for (var i = 0; i < recs.length; i++) {
-      var r = recs[i];
-      if (r.type !== 0x0e || r.size < 0x28) continue;
-      var group = bytes[r.payload + 0x20], num = bytes[r.payload + 0x21];
-      var key = group + ':' + num;
-      if (!chunks[key]) chunks[key] = { group: group, num: num, recs: [], first: r.payload, last: r.payload + r.size };
-      var ch = chunks[key];
-      ch.recs.push(r);
-      if (r.payload < ch.first) ch.first = r.payload;
-      if (r.payload + r.size > ch.last) ch.last = r.payload + r.size;
-    }
-
-    var taxYear = detectTaxYear(bytes);
-    var cases = [];
-    var keys = [];
-    for (var k in chunks) if (chunks[k].group === 2) keys.push(k);
-    keys.sort(function (a, b) { return chunks[a].num - chunks[b].num; });
-
-    if (!keys.length) warnings.push('No case data chunks (caseGroup 2) were found in FileData.');
-
-    for (var ki = 0; ki < keys.length; ki++) {
-      var chunk = chunks[keys[ki]];
-      // Find the summary grid (screen id 3, the largest such record).
-      var summary = null;
-      for (var s = 0; s < chunk.recs.length; s++) {
-        var rec = chunk.recs[s];
-        if (u16(bytes, rec.payload + 0x24) === SUMMARY_SCREEN_ID) {
-          if (!summary || rec.size > summary.size) summary = rec;
-        }
-      }
-
-      var caseObj = { name: 'Case ' + chunk.num, description: '', years: [] };
-      var fields = {};
-      var reference = {};
-
-      var fs = filingStatusFromChunk(bytes, chunk.first, chunk.last);
-      if (fs) fields.filingStatus = fs;
-
-      if (summary) {
-        var totalIncome = slot(bytes, summary.payload, SLOT.totalIncome);
-        var adjustments = slot(bytes, summary.payload, SLOT.adjustments);
-        var agi = slot(bytes, summary.payload, SLOT.agi);
-        var deduction = slot(bytes, summary.payload, SLOT.deduction);
-        var qbi = slot(bytes, summary.payload, SLOT.qbiDeduction);
-        var taxable = slot(bytes, summary.payload, SLOT.taxableIncome);
-        var totalTax = slot(bytes, summary.payload, SLOT.totalTax);
-        var wages = slot(bytes, summary.payload, SLOT.wages);
-        var ordinary = slot(bytes, summary.payload, SLOT.ordinaryIncome);
-        var preferential = slot(bytes, summary.payload, SLOT.preferentialIncome);
-
-        // Reconcile the grid before trusting any of it.
-        var okAgi = isFinite(totalIncome) && isFinite(agi) && isFinite(adjustments) &&
-          near(agi, totalIncome - adjustments, 1);
-        var okTaxable = isFinite(agi) && isFinite(taxable) && isFinite(deduction) &&
-          isFinite(qbi) && near(taxable, agi - deduction - qbi, 1);
-        var okSplit = isFinite(ordinary) && isFinite(preferential) && isFinite(agi) &&
-          near(ordinary + preferential, agi, 1);
-
-        if (okAgi && okTaxable) {
-          reference.totalIncome = round2(totalIncome);
-          reference.agi = round2(agi);
-          reference.deduction = round2(deduction);
-          if (Math.abs(qbi) > 0.005) reference.qbiDeduction = round2(qbi);
-          reference.taxableIncome = round2(taxable);
-          if (isFinite(totalTax) && totalTax >= 0) reference.totalTax = round2(totalTax);
-
-          // Wages: the grid's line-1 figure. It is not covered by the AGI
-          // arithmetic, so cross-check it against the W-2 Box-1 sum and only
-          // emit when they agree; otherwise leave it out.
-          if (isFinite(wages) && wages >= 0 && wages <= totalIncome + 1) {
-            var w2 = sumW2Wages(bytes, chunk);
-            if (w2.count > 0 && near(w2.total, wages, Math.max(100, Math.abs(wages) * 0.02))) {
-              fields.wages = round2(wages);
-            } else if (w2.count === 0 && wages === 0) {
-              fields.wages = 0;
-            }
-          }
-
-          if (okSplit && preferential > 0) {
-            warnings.push('Case ' + chunk.num + ': net long-term capital gain and qualified dividends are ' +
-              'stored combined as one preferential-income figure and are not split into ltcg/qualDiv.');
-          }
-        } else {
-          warnings.push('Case ' + chunk.num + ': summary grid did not reconcile (AGI/taxable tie-out failed); ' +
-            'reference figures omitted for safety.');
-        }
-      } else {
-        warnings.push('Case ' + chunk.num + ': no summary grid (screen id ' + SUMMARY_SCREEN_ID + ') found.');
-      }
-
-      caseObj.years.push({
-        year: taxYear || (ki + 1),
-        fields: fields,
-        reference: reference
-      });
-      cases.push(caseObj);
-    }
-
-    return cases;
-  }
-
-  // Cross-validate the grid wages line by summing W-2 Box-1 (taxable) wages.
-  // Two passes: (1) find the W-2 screen id — the screen id shared by records
-  // carrying a FICA signature (a value at +0x83 equal to 6.2% of a wage base
-  // in the record, capped or not); (2) sum Box-1 (+0x73) across every record
-  // of that screen. Used only to gate the emitted wages; never emitted itself.
-  function sumW2Wages(bytes, chunk) {
+  // W-2 screen detection by FICA signature (6.2% of a wage base, capped or
+  // not) — survives screen-id changes across producer versions. Several
+  // screens can trip the signature by accident (rate-table worksheets), so
+  // every candidate id is summed and the one whose Box-1 total matches the
+  // grid's wages line wins. Returns Box-1 sum, federal-withholding sum and
+  // record count, or count 0 when no candidate matches.
+  function sumW2s(bytes, chunk, gridWages) {
     var votes = {};
     for (var i = 0; i < chunk.recs.length; i++) {
-      var r = chunk.recs[i];
-      if (r.size < 0x100) continue;
+      var e = chunk.recs[i];
+      if (e.section !== 0 || e.rec.size < 0x100) continue;
+      var r = e.rec;
       var box1 = f64safe(bytes, r.payload + 0x73);
       var ss = f64safe(bytes, r.payload + 0x83);
       var base = f64safe(bytes, r.payload + 0x93) || f64safe(bytes, r.payload + 0x9b) || box1;
       if (box1 > 0 && ss > 0 && base > 0) {
-        // SS is 6.2% of the wage base up to some annual maximum; accept either
-        // the uncapped value or a plausible capped value (base 140k–200k).
         var uncapped = Math.round(0.062 * base);
         var capOk = false;
         for (var capBase = 140000; capBase <= 200000; capBase += 100) {
           if (base > capBase && near(ss, Math.round(0.062 * capBase), 2)) { capOk = true; break; }
         }
-        if (near(ss, uncapped, 2) || capOk) {
-          var sid = u16(bytes, r.payload + 0x24);
-          votes[sid] = (votes[sid] || 0) + 1;
+        if (near(ss, uncapped, 2) || capOk) votes[e.screenId] = (votes[e.screenId] || 0) + 1;
+      }
+    }
+    var tol = Math.max(100, Math.abs(gridWages || 0) * 0.02);
+    var found = null;
+    for (var id in votes) {
+      var total = 0, withheld = 0, count = 0;
+      var w2recs = screens({ recs: chunk.recs }, +id);
+      for (var j = 0; j < w2recs.length; j++) {
+        var b1 = f64safe(bytes, w2recs[j].payload + 0x73);
+        var wh = f64safe(bytes, w2recs[j].payload + 0x7b);
+        if (isFinite(b1) && b1 >= 0 && b1 < 1e8) {
+          total += b1; count++;
+          if (isFinite(wh) && wh >= 0 && wh < b1) withheld += wh;
+        }
+      }
+      if (count > 0 && isFinite(gridWages) && near(total, gridWages, tol)) {
+        // Prefer the candidate with the most signature votes among matches.
+        if (!found || votes[id] > found.votes) {
+          found = { total: total, withheld: withheld, count: count, votes: votes[id] };
         }
       }
     }
-    var w2Id = null, best = 0;
-    for (var id in votes) if (votes[id] > best) { best = votes[id]; w2Id = +id; }
-    if (w2Id === null) return { total: 0, count: 0 };
-    var total = 0, count = 0;
-    for (var j = 0; j < chunk.recs.length; j++) {
-      var rj = chunk.recs[j];
-      if (u16(bytes, rj.payload + 0x24) !== w2Id) continue;
-      var b1 = f64safe(bytes, rj.payload + 0x73);
-      if (isFinite(b1) && b1 >= 0 && b1 < 1e8) { total += b1; count++; }
-    }
-    return { total: total, count: count };
+    return found || { total: 0, withheld: 0, count: 0 };
   }
 
-  function f64safe(bytes, o) {
-    if (o + 8 > bytes.length) return NaN;
-    var v = f64(bytes, o);
-    return isFinite(v) ? v : NaN;
+  function decodeChunk(bytes, chunk, fallbackYear, warnings) {
+    var out = { yearCol: chunk.yearCol, year: null, name: '', yearCaption: '',
+      fields: {}, reference: {} };
+    var fields = out.fields, reference = out.reference;
+
+    // --- case/year settings (screen 207): captions + the column's tax year --
+    var settings = screens(chunk, SCREEN.caseSettings)[0] || null;
+    if (settings) {
+      out.name = labelAt(bytes, settings, 0x2c7);
+      out.yearCaption = labelAt(bytes, settings, 0x2f3);
+      if (settings.size >= 0x87) {
+        var yr = u32(bytes, settings.payload + 0x83);
+        if (yr >= 2018 && yr <= 2035) out.year = yr;
+      }
+    }
+    if (out.year === null) out.year = fallbackYear;
+    var who = (out.name || ('case ' + (chunk.caseId - 1))) +
+      (out.yearCaption ? ' / ' + out.yearCaption : ' / year column ' + chunk.yearCol);
+
+    // --- filing status + exemption count ------------------------------------
+    var fs = filingStatusFromChunk(bytes, chunk);
+    if (fs.status) fields.filingStatus = fs.status;
+
+    // --- summary grid (screen 3, the largest record of that id) -------------
+    var summary = null, sRecs = screens(chunk, SUMMARY_SCREEN_ID);
+    for (var s = 0; s < sRecs.length; s++) {
+      if (!summary || sRecs[s].size > summary.size) summary = sRecs[s];
+    }
+    if (!summary) {
+      warnings.push(who + ': no summary grid (screen id ' + SUMMARY_SCREEN_ID + ') found.');
+      return out;
+    }
+    var g = function (idx) { return slot(bytes, summary.payload, idx); };
+
+    var totalIncome = g(SLOT.totalIncome);
+    var agi = g(SLOT.agi);
+    var deduction = g(SLOT.deduction);
+    var qbi = g(SLOT.qbiDeduction);
+    var taxable = g(SLOT.taxableIncome);
+    var totalTax = g(SLOT.totalTax);
+    var wages = g(SLOT.wages);
+    var schE = g(SLOT.scheduleE);
+
+    // Adjustments: slot 34 is the full adjustments-to-income line; slot 23 is
+    // a subset that matched it in 2025.02000 plans (kept as fallback).
+    var adjustments = g(SLOT.adjustments);
+    var okAgi = isFinite(totalIncome) && isFinite(agi) && isFinite(adjustments) &&
+      near(agi, totalIncome - adjustments, 1);
+    if (!okAgi) {
+      adjustments = g(SLOT.adjustmentsA);
+      okAgi = isFinite(totalIncome) && isFinite(agi) && isFinite(adjustments) &&
+        near(agi, totalIncome - adjustments, 1);
+    }
+    var okTaxable = isFinite(agi) && isFinite(taxable) && isFinite(deduction) &&
+      isFinite(qbi) && near(taxable, agi - deduction - qbi, 1);
+
+    if (!(okAgi && okTaxable)) {
+      warnings.push(who + ': summary grid did not reconcile (AGI/taxable tie-out failed); ' +
+        'figures omitted for safety.');
+      return out;
+    }
+
+    reference.totalIncome = round2(totalIncome);
+    reference.agi = round2(agi);
+    reference.deduction = round2(deduction);
+    if (Math.abs(qbi) > 0.005) reference.qbiDeduction = round2(qbi);
+    reference.taxableIncome = round2(taxable);
+    // Slot 281 held the plan's net-tax row in 2025.02000 plans but is written
+    // as 0 in the 2026.01000 sample; a zero against positive taxable income is
+    // clearly not the tax, so it is suppressed rather than shown.
+    if (isFinite(totalTax) && (totalTax > 0 || (totalTax === 0 && taxable <= 0))) {
+      reference.totalTax = round2(totalTax);
+    }
+
+    // --- income-line identity: sum of lines 0..18 (excluding slot 2 =
+    // tax-exempt interest) plus the Schedule E line equals total income. -----
+    var lineSum = 0, li;
+    for (li = 0; li <= 18; li++) {
+      if (li === SLOT.exemptInterest) continue;
+      var lv = g(li);
+      if (isFinite(lv)) lineSum += lv;
+    }
+    var okLines = isFinite(schE) && near(lineSum + schE, totalIncome, 1);
+
+    // --- wages: grid line 0 cross-checked against the W-2 Box-1 sum ---------
+    var w2 = sumW2s(bytes, chunk, wages);
+    var okWages = false;
+    if (isFinite(wages) && wages >= 0) {
+      if (w2.count > 0 && near(w2.total, wages, Math.max(100, Math.abs(wages) * 0.02))) {
+        fields.wages = round2(wages);
+        okWages = true;
+        if (w2.withheld > 0) {
+          fields.fedWithholding = round2(w2.withheld);
+          warnings.push(who + ': federal withholding is the W-2 total only; withholding ' +
+            'entered on 1099 activities is not decoded.');
+        }
+      } else if (w2.count === 0 && wages === 0) {
+        fields.wages = 0;
+        okWages = true;
+      } else {
+        warnings.push(who + ': wages line did not match the W-2 Box-1 sum; wages omitted.');
+      }
+    }
+
+    // --- Schedule D tax worksheet (screen 29): qualified dividends + LTCG ---
+    var taxComp = screens(chunk, SCREEN.taxComputation)[0] || null;
+    var qualDiv = fieldAt(bytes, taxComp, 0x10b);
+    var netLtcg = fieldAt(bytes, taxComp, 0x11b);
+    var prefTotal = fieldAt(bytes, taxComp, 0x123);
+    var ordPortion = fieldAt(bytes, taxComp, 0x163);
+    var taxableUsed = fieldAt(bytes, taxComp, 0xab);
+    var incomeTax = fieldAt(bytes, taxComp, 0x293);
+    var okSchD = taxComp !== null && isFinite(qualDiv) && isFinite(netLtcg) &&
+      isFinite(prefTotal) && isFinite(ordPortion) && isFinite(taxableUsed) &&
+      near(prefTotal, qualDiv + netLtcg, 1) && near(ordPortion, taxableUsed - prefTotal, 1);
+    if (okSchD) {
+      if (qualDiv !== 0) fields.qualDiv = round2(qualDiv);
+      if (netLtcg !== 0) fields.ltcg = round2(netLtcg);
+      // The plan's own regular income tax (before credits, SE and other
+      // taxes) — the worksheet result its rate math produces.
+      if (isFinite(incomeTax) && incomeTax > 0 && taxable > 0) {
+        reference.incomeTax = round2(incomeTax);
+      }
+    } else if (taxComp) {
+      warnings.push(who + ': tax-computation worksheet did not reconcile; qualified ' +
+        'dividends / LTCG omitted.');
+    }
+
+    // --- interest + ordinary dividends (grid lines 1 and 3, cross-checked
+    // against the interest/dividend totals worksheet, screen 675) ------------
+    var intDiv = screens(chunk, SCREEN.intDivTotals)[0] || null;
+    var gInt = g(SLOT.interest), gDiv = g(SLOT.dividends);
+    var okIntDiv = intDiv !== null && isFinite(gInt) && isFinite(gDiv) &&
+      near(fieldAt(bytes, intDiv, 0x63), gInt, 1) && near(fieldAt(bytes, intDiv, 0x6b), gDiv, 1);
+    if (okIntDiv && okSchD && qualDiv >= 0 && qualDiv <= gDiv + 0.005) {
+      // The app's field combines interest with the NON-qualified slice of
+      // ordinary dividends (qualified dividends are their own field).
+      var intField = gInt + gDiv - qualDiv;
+      if (intField !== 0) fields.interest = round2(intField);
+    }
+
+    // --- Schedule C (grid line 6, cross-checked against the SE worksheet) ---
+    var seWk = screens(chunk, SCREEN.seWorksheet)[0] || null;
+    var gSchC = g(SLOT.scheduleC);
+    var okSchC = seWk !== null && isFinite(gSchC) && near(fieldAt(bytes, seWk, 0x193), gSchC, 1);
+    if (okSchC && gSchC !== 0) fields.scheduleCNet = round2(gSchC);
+
+    // --- Schedule E passthrough (grid line 210, cross-checked against the
+    // per-activity partnership/S-corp worksheets, screen 566) ----------------
+    var k1s = screens(chunk, SCREEN.k1Worksheet);
+    var k1Sum = 0;
+    for (var k = 0; k < k1s.length; k++) {
+      var kv = f64safe(bytes, k1s[k].payload + 0xbb);
+      if (isFinite(kv)) k1Sum += kv;
+    }
+    var okSchE = isFinite(schE) && near(k1Sum, schE, 1);
+    if (okSchE) {
+      if (schE !== 0) fields.passthroughK1 = round2(schE);
+    } else if (isFinite(schE) && schE !== 0) {
+      warnings.push(who + ': the rents/royalties/partnership line (' + round2(schE) +
+        ') does not equal the sum of the K-1 worksheets; it may include rental or ' +
+        'estate/trust amounts the parser cannot split, so passthroughK1 was omitted.');
+    }
+
+    // --- other income: the residual of the validated total-income identity --
+    if (okLines && okWages && okIntDiv && okSchC && okSchE && okSchD) {
+      var mapped = wages + gInt + (gDiv - qualDiv) + qualDiv + gSchC + schE + netLtcg;
+      var otherIncome = totalIncome - mapped;
+      if (Math.abs(otherIncome) > 0.005) {
+        fields.otherIncome = round2(otherIncome);
+        warnings.push(who + ': Other income ' + round2(otherIncome) + ' is the remainder of ' +
+          'the plan’s total income after the mapped lines (it can contain short-term ' +
+          'gains, other gains, state refunds, retirement income and other-income items).');
+      }
+    } else if (okLines === false) {
+      warnings.push(who + ': income lines did not sum to total income; per-line income ' +
+        'fields beyond wages omitted.');
+    }
+
+    // --- Schedule A (screen 35): itemized components ------------------------
+    var schedA = null, aRecs = screens(chunk, SCREEN.scheduleA);
+    for (var a = 0; a < aRecs.length; a++) {
+      // the federal Schedule A screen is ~1.1 KB; ignore the multi-KB payment
+      // screens that share nothing but a coincidental id in other sections
+      if (aRecs[a].size < 2000 && (!schedA || aRecs[a].size > schedA.size)) schedA = aRecs[a];
+    }
+    if (schedA) {
+      var propTax = fieldAt(bytes, schedA, 0x63);
+      var incomeTaxesPaid = fieldAt(bytes, schedA, 0x7b);
+      var saltDeducted = fieldAt(bytes, schedA, 0x93);
+      var mortgage = fieldAt(bytes, schedA, 0x9b);
+      var interestTot = fieldAt(bytes, schedA, 0xbb);
+      var charitable = fieldAt(bytes, schedA, 0xd3);
+      var itemizedTotal = fieldAt(bytes, schedA, 0x133);
+      var okSchedA = isFinite(saltDeducted) && isFinite(interestTot) && isFinite(charitable) &&
+        isFinite(itemizedTotal) && near(saltDeducted + interestTot + charitable, itemizedTotal, 1);
+      if (okSchedA && itemizedTotal !== 0) {
+        if (isFinite(propTax) && propTax > 0) fields.propertyTax = round2(propTax);
+        if (isFinite(mortgage) && mortgage > 0) fields.mortgageInterest = round2(mortgage);
+        if (charitable > 0) fields.charitable = round2(charitable);
+        var otherItemized = itemizedTotal - saltDeducted - (isFinite(mortgage) ? mortgage : 0) -
+          charitable;
+        if (otherItemized > 0.005) fields.otherItemized = round2(otherItemized);
+      } else if (isFinite(itemizedTotal) && itemizedTotal !== 0) {
+        warnings.push(who + ': Schedule A components did not sum to its total (medical or ' +
+          'other lines the parser does not decode may be present); itemized fields omitted.');
+      }
+
+      // State/local income taxes paid (input screen 20). Its mortgage field
+      // must mirror Schedule A's before the record is trusted.
+      var taxesPaid = screens(chunk, SCREEN.taxesPaidInput)[0] || null;
+      if (taxesPaid) {
+        var statePaid = fieldAt(bytes, taxesPaid, 0x7b);
+        var mortEntered = fieldAt(bytes, taxesPaid, 0x93);
+        if (isFinite(statePaid) && statePaid > 0 && isFinite(mortEntered) &&
+          isFinite(mortgage) && near(mortEntered, mortgage, 1)) {
+          fields.stateWithholding = round2(statePaid);
+          warnings.push(who + ': state/local taxes paid (' + round2(statePaid) + ') were ' +
+            'imported as state withholding; the plan does not say how much of it is ' +
+            'withholding vs. estimates — split it manually if needed.');
+        }
+      }
+    }
+
+    // --- dependents from the exemption caption ------------------------------
+    if (fs.status && fs.exemptions !== null) {
+      var selfCount = fs.status === 'mfj' ? 2 : 1;
+      var deps = fs.exemptions - selfCount;
+      if (deps > 0 && deps <= 15) {
+        fields.otherDeps = deps;
+        warnings.push(who + ': ' + deps + ' dependent(s) were imported as "other dependents" ' +
+          'because the plan does not indicate which qualify for the child tax credit — ' +
+          'move CTC-eligible children to that field manually.');
+      }
+    }
+
+    return out;
+  }
+
+  function decodeCases(bytes, recs, warnings) {
+    var chunks = collectChunks(bytes, recs);
+    var fallbackYear = null;
+
+    // Group data chunks (caseId >= 2) by case, keeping file order.
+    var caseMap = {}, caseIds = [];
+    for (var i = 0; i < chunks.length; i++) {
+      var ch = chunks[i];
+      if (ch.caseId < 2) continue;   // caseId 1 = template
+      if (!caseMap[ch.caseId]) { caseMap[ch.caseId] = []; caseIds.push(ch.caseId); }
+      caseMap[ch.caseId].push(ch);
+    }
+    caseIds.sort(function (a, b) { return a - b; });
+    if (!caseIds.length) {
+      warnings.push('No case data chunks were found in FileData.');
+      return [];
+    }
+
+    var cases = [];
+    for (var c = 0; c < caseIds.length; c++) {
+      var yearChunks = caseMap[caseIds[c]];
+      yearChunks.sort(function (a, b) { return a.yearCol - b.yearCol; });
+      var caseObj = { name: '', description: '', years: [] };
+      for (var y = 0; y < yearChunks.length; y++) {
+        if (fallbackYear === null) fallbackYear = detectTaxYear(bytes) || 0;
+        var col = decodeChunk(bytes, yearChunks[y], fallbackYear || null, warnings);
+        if (!caseObj.name && col.name) caseObj.name = col.name;
+        caseObj.years.push({
+          year: col.year || col.yearCol,
+          fields: col.fields,
+          reference: col.reference
+        });
+      }
+      if (!caseObj.name) caseObj.name = 'Case ' + (caseIds[c] - 1);
+      cases.push(caseObj);
+    }
+    return cases;
   }
 
   /* -------------------------------------------------------------------------
