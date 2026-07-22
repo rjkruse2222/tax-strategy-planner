@@ -549,6 +549,7 @@
       clientName: $('clientName').value || 'Client',
       firmName: $('firmName').value || TSIQ.brand.name,
       fees: { planning: num('feePlanning'), annual: num('feeAnnual') },
+      investRate: num('investRatePct') / 100,
       profile: profile,
       baseline: TSIQ.computeBaseline(profile, years, growthRate),
       scenarios: scenarios,
@@ -566,7 +567,7 @@
     'entityW2Wages', 'rentalNet', 'ltcg', 'qualDiv', 'interest', 'otherIncome',
     'propertyTax', 'mortgageInterest', 'charitable', 'otherItemized',
     'kidsCTC', 'otherDeps', 'fedWithholding', 'fedEstimates',
-    'stateWithholding', 'stateEstimates', 'stateRatePct', 'years', 'growthPct'];
+    'stateWithholding', 'stateEstimates', 'stateRatePct', 'years', 'growthPct', 'investRatePct'];
   var PROFILE_CHECKBOX_IDS = ['isSSTB', 'rentalLossesUsable', 'ltcgOneTime'];
 
   // Restore every client-data field to its pristine (HTML-default) state and
@@ -1004,6 +1005,9 @@
     // report can never show numbers that no longer match the inputs.
     $('btn-pdf').addEventListener('click', function () {
       if (compute({ noScroll: true })) TSIQ.render.clientReport(lastRun);
+    });
+    $('btn-binder').addEventListener('click', function () {
+      if (compute({ noScroll: true })) TSIQ.render.binderReport(lastRun);
     });
     $('btn-slides').addEventListener('click', function () {
       if (compute({ noScroll: true })) TSIQ.render.slideshow(lastRun);
