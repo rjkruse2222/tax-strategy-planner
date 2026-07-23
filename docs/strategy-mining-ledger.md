@@ -25,7 +25,7 @@ This is a candidate ledger, not a reproduction of any source content.
 | IRMAA planning | SSA §1839(i) | advisory |
 | Carried interest / §1061 | §1061 | advisory |
 
-## NEW — to author (second batch, investment / estate / other)
+## NEW — authored (second batch, investment / estate / other)
 
 | Strategy | Authority | Type | Cluster |
 |---|---|---|---|
