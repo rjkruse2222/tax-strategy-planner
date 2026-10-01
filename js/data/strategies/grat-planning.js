@@ -9,6 +9,7 @@ TSIQ.strategyModules.push({
   name: 'Grantor Retained Annuity Trust (GRAT)',
   category: 'Succession & Exit',
   applyOrder: 82,
+  modeled: false,
 
   advisor: {
     summary:

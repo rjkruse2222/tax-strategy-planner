@@ -9,6 +9,7 @@ TSIQ.strategyModules.push({
   name: 'Irrevocable Life Insurance Trust (ILIT)',
   category: 'Succession & Exit',
   applyOrder: 83,
+  modeled: false,
 
   advisor: {
     summary:

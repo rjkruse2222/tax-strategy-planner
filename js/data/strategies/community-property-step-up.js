@@ -9,6 +9,7 @@ TSIQ.strategyModules.push({
   name: 'Community-Property Double Step-Up (§1014(b)(6))',
   category: 'Succession & Exit',
   applyOrder: 84,
+  modeled: false,
 
   advisor: {
     summary:
