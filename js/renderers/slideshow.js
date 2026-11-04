@@ -181,12 +181,10 @@ TSIQ.render = TSIQ.render || {};
     var pctSmaller = b0 > 0 ? Math.round(yr1Savings / b0 * 100) : 0;
     var effRate = baseR.totalIncome > 0 ? (b0 / baseR.totalIncome * 100).toFixed(1) : '0';
 
-    var uniqueStrategies = [];
-    data.scenarios.forEach(function (sc) {
-      sc.strategies.forEach(function (s) {
-        if (uniqueStrategies.indexOf(s) === -1) uniqueStrategies.push(s);
-      });
-    });
+    // The deck is built on the best scenario (same basis as the PDF report,
+    // binder, and pitch deck). Counting the union across scenarios used to
+    // show "9 moves" while every dollar figure came from an 8-strategy plan.
+    var uniqueStrategies = best.strategies.slice();
     var n = uniqueStrategies.length;
     var movesWord = n + (n === 1 ? ' move' : ' moves');
 

@@ -81,11 +81,11 @@ modeling gap.
 
 ## The strategy library
 
-100 strategies across 10 categories (Entity Structure, QBI Optimization,
+123 strategies across 10 categories (Entity Structure, QBI Optimization,
 Payroll & Family, Retirement, Health & Fringe, Real Estate & Cost Recovery,
 Business Expenses, Income Timing & Character, Credits & Incentives,
-Succession & Exit). 56 are **modeled** (they change the scenario math);
-44 are **advisory** (structural/planning items shown in the library and plan
+Succession & Exit). 60 are **modeled** (they change the scenario math);
+63 are **advisory** (structural/planning items shown in the library and plan
 documents without pretending to have computable savings). Use the search box
 in Section 2 to find anything fast.
 
@@ -99,6 +99,22 @@ in Section 2 to find anything fast.
 
 The library cards, scenario checkboxes, PDF, slideshow, and pitch deck all
 pick it up automatically.
+
+## Testing
+
+Two checks, both run from the project folder (Node.js required):
+
+```
+node scripts/validate-strategies.js        # schema + math smoke test of every strategy
+NODE_PATH=$(npm root -g) node scripts/e2e-smoke.js   # headless end-to-end (needs playwright)
+```
+
+The end-to-end test opens the real app in headless Chromium, fills a synthetic
+client, selects strategies in both scenarios, runs the comparison, opens all
+five client outputs, confirms the pitch deck stays anonymized, and round-trips
+Export → Import. Install the browser once with `npx playwright install chromium`.
+Screenshots and the exported sample land in `e2e-out/` (gitignored). No real
+client data is used.
 
 ## Working on this with Claude Code
 
