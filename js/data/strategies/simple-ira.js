@@ -10,6 +10,12 @@ TSIQ.strategyModules.push({
   name: 'SIMPLE IRA',
   category: 'Retirement',
   applyOrder: 63,
+  conflictsWith: ['solo-401k', 'sep-ira', 'safe-harbor-401k',
+    'profit-sharing-new-comparability', 'defined-benefit-plan', 'cash-balance-stack',
+    'backdoor-roth', 'mega-backdoor-roth'],
+  conflictNote: 'The SIMPLE exclusive-plan rule (§408(p)(2)(D)) bars the employer from ' +
+    'maintaining any other plan in the same year, and pre-tax SIMPLE balances make ' +
+    'backdoor Roth conversions largely taxable under the §408(d)(2) pro-rata rule.',
   modeled: true,
 
   advisor: {
@@ -135,7 +141,7 @@ TSIQ.strategyModules.push({
     }
 
     // Compensation base: net SE earnings (0.9235 factor) or owner W-2 wages.
-    var comp = isSE ? p.scheduleCNet * 0.9235 : p.ownerWages;
+    var comp = isSE ? p.scheduleCNet * TSIQ.TABLES_2026.fica.seNetEarningsFactor : p.ownerWages;
 
     var deferral = Math.min(params.deferral || 0, lim.simpleDeferral, comp);
     if ((params.deferral || 0) > lim.simpleDeferral && yearIndex === 0) {

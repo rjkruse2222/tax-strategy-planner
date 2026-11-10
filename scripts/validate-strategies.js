@@ -36,10 +36,30 @@ var SMOKE_PROFILE = {
   kidsCTC: 2, otherDeps: 0, stateRate: 0.058
 };
 
+var byId = {};
+TSIQ.STRATEGIES.forEach(function (s) { byId[s.id] = s; });
+
 var seenIds = {};
 TSIQ.STRATEGIES.forEach(function (s) {
   var errs = [];
   REQUIRED.forEach(function (k) { if (s[k] === undefined) errs.push('missing ' + k); });
+
+  // conflictsWith: ids must exist and declarations must be symmetric —
+  // the app UI disables conflicting checkboxes based on these.
+  if (s.conflictsWith !== undefined) {
+    if (!Array.isArray(s.conflictsWith)) {
+      errs.push('conflictsWith must be an array of strategy ids');
+    } else {
+      s.conflictsWith.forEach(function (cid) {
+        if (cid === s.id) errs.push('conflictsWith lists itself');
+        else if (!byId[cid]) errs.push('conflictsWith references unknown id "' + cid + '"');
+        else if ((byId[cid].conflictsWith || []).indexOf(s.id) === -1)
+          errs.push('conflict with "' + cid + '" is not declared symmetrically');
+      });
+    }
+  }
+  if (s.conflictNote !== undefined && typeof s.conflictNote !== 'string')
+    errs.push('conflictNote must be a string');
   if (seenIds[s.id]) errs.push('DUPLICATE id');
   seenIds[s.id] = true;
   if (s.advisor) ADVISOR_KEYS.forEach(function (k) {

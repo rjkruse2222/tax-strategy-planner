@@ -1,6 +1,10 @@
 /* ============================================================================
  * RETURN PARSER — reads a software-generated Form 1040 package PDF directly
- * in the browser (vendored Mozilla pdf.js, js/vendor/) with NO AI involved.
+ * in the browser (vendored Mozilla pdf.js 6.1.200, js/vendor/) with NO AI
+ * involved. The vendor files are classic-script IIFE bundles (see the banner
+ * comment in each) because file:// blocks module scripts and Worker(); the
+ * worker bundle runs on the main thread and pdf.js uses its fake-worker path
+ * via globalThis.pdfjsWorker.WorkerMessageHandler.
  *
  * Method: extract text WITH coordinates, group items into visual rows, find
  * standard IRS line labels ("This is your adjusted gross income"), and take
@@ -60,7 +64,10 @@ window.TSIQ = window.TSIQ || {};
   }
 
   function isNumericItem(s) {
-    return /^\(?\$?\s?[0-9][0-9,]*\.?[0-9]{0,2}\)?$/.test(s.trim());
+    // Accepts "4,000", "$ 4,000", "(4,000)", and hyphen negatives ("-4,000",
+    // "$-4,000") — several packages print losses with a leading minus rather
+    // than parentheses, and missing those silently drops rental/capital losses.
+    return /^\(?\$?\s?-?[0-9][0-9,]*\.?[0-9]{0,2}\)?$/.test(s.trim());
   }
 
   /**

@@ -10,6 +10,12 @@ TSIQ.strategyModules.push({
   name: 'SEP-IRA',
   category: 'Retirement',
   applyOrder: 62,
+  conflictsWith: ['solo-401k', 'simple-ira', 'safe-harbor-401k',
+    'profit-sharing-new-comparability', 'defined-benefit-plan', 'cash-balance-stack',
+    'backdoor-roth', 'mega-backdoor-roth'],
+  conflictNote: 'A Form 5305-SEP cannot coexist with another plan, and pre-tax SEP ' +
+    'dollars both double-count the §415(c) limit as modeled here and make backdoor ' +
+    'Roth conversions largely taxable under the §408(d)(2) pro-rata rule.',
   modeled: true,
 
   advisor: {
@@ -138,7 +144,7 @@ TSIQ.strategyModules.push({
     // SE base ≈ 20% of net earnings (§1402(a)(12) 0.9235 factor; the exact
     // Pub. 560 circular computation differs immaterially and this is conservative).
     var compMax = isSE
-      ? p.scheduleCNet * 0.9235 * 0.20
+      ? p.scheduleCNet * TSIQ.TABLES_2026.fica.seNetEarningsFactor * 0.20
       : Math.min(p.ownerWages, lim.compensationLimit) * 0.25;
     var cap = Math.min(compMax, lim.dcAnnualAdditions);
 

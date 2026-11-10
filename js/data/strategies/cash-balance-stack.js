@@ -10,6 +10,10 @@ TSIQ.strategyModules.push({
   name: 'Cash Balance Stacked on 401(k)/Profit Sharing',
   category: 'Retirement',
   applyOrder: 64,
+  conflictsWith: ['solo-401k', 'sep-ira', 'simple-ira', 'safe-harbor-401k',
+    'profit-sharing-new-comparability', 'defined-benefit-plan'],
+  conflictNote: 'The stack already includes the 401(k), profit-sharing, and DB layers — ' +
+    'selecting any of those strategies separately double-counts the same deduction.',
   modeled: true,
 
   advisor: {

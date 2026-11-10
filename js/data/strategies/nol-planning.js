@@ -116,23 +116,60 @@ TSIQ.strategyModules.push({
   },
 
   /**
-   * SIMPLIFICATION (stated honestly): the engine applies the NOL as an
-   * above-the-line adjustment and does NOT enforce the §172(a)(2) 80%-of-
-   * taxable-income cap. The advisor must cap the input at 80% of projected
-   * taxable income (before the NOL). Applied in year 1 only — a one-time
+   * The NOL is applied as an above-the-line adjustment, and the §172(a)(2)
+   * 80%-of-taxable-income limitation IS enforced here against a documented
+   * PROXY for pre-NOL taxable income built from the profile at this
+   * strategy's early applyOrder (4 — before most other strategies mutate the
+   * profile):
+   *   proxy = all income fields (rentalNet excluded when it is a loss with
+   *           rentalLossesUsable false, mirroring the engine's §469 gate)
+   *           − existing above-the-line adjustments
+   *           − the greater of the standard deduction or the entered itemized
+   *             deductions (property tax counted at no more than the SALT cap;
+   *             state income tax portion of SALT unknowable here, omitted).
+   * The SE-tax deduction and the QBI deduction are NOT in the proxy, so the
+   * cap base is somewhat overstated and the cap correspondingly generous —
+   * flagged in the note; the advisor verifies against the actual projection.
+   * The 0.80 multiplier is the statutory §172(a)(2) percentage (post-2017
+   * losses), not an indexed table amount. Applied in year 1 only — a one-time
    * absorption, not a recurring deduction. Does not reduce QBI (correct:
    * routed through `adjustments`, not the business income fields).
    */
   apply: function (profile, params, yearIndex, state) {
     var p = Object.assign({}, profile);
     var notes = [];
+    var tb = TSIQ.TABLES_2026;
     var nol = params.nolAvailable || 0;
 
     if (yearIndex === 0 && nol > 0) {
-      p.adjustments = (p.adjustments || 0) + nol;
-      notes.push('Year 1: ' + TSIQ.fmt.usd(nol) + ' NOL carryforward deducted. ' +
-        'IMPORTANT: the engine does not enforce the §172(a)(2) 80%-of-taxable-income cap — ' +
-        'cap this input at 80% of projected taxable income before the NOL.');
+      var fs = p.filingStatus || 'single';
+      var rental = (p.rentalNet < 0 && !p.rentalLossesUsable) ? 0 : (p.rentalNet || 0);
+      var incomeSum = (p.wages || 0) + (p.ownerWages || 0) + (p.scheduleCNet || 0) +
+        (p.passthroughK1 || 0) + rental + (p.ltcg || 0) + (p.qualDiv || 0) +
+        (p.interest || 0) + (p.otherIncome || 0);
+      var itemizedApprox = Math.min((p.propertyTax || 0), tb.salt.cap[fs]) +
+        (p.mortgageInterest || 0) + (p.charitable || 0) + (p.otherItemized || 0);
+      var dedApprox = Math.max(tb.standardDeduction[fs], itemizedApprox);
+      var preNolTI = Math.max(0, incomeSum - (p.adjustments || 0) - dedApprox);
+      // 80% of pre-NOL taxable income — statutory percentage, §172(a)(2).
+      var allowed = Math.min(nol, 0.80 * preNolTI);
+
+      p.adjustments = (p.adjustments || 0) + allowed;
+      if (allowed < nol) {
+        notes.push('§172(a)(2) limitation ENFORCED: of the ' + TSIQ.fmt.usd(nol) +
+          ' NOL entered, only ' + TSIQ.fmt.usd(allowed) + ' is deducted — 80% of the ' +
+          TSIQ.fmt.usd(preNolTI) + ' pre-NOL taxable-income proxy. The remaining ' +
+          TSIQ.fmt.usd(nol - allowed) + ' stays in the carryforward (its later-year ' +
+          'absorption is not modeled).');
+      } else {
+        notes.push('Year 1: ' + TSIQ.fmt.usd(allowed) + ' NOL carryforward deducted — within ' +
+          'the §172(a)(2) 80% limitation (cap: ' + TSIQ.fmt.usd(0.80 * preNolTI) +
+          ', 80% of the ' + TSIQ.fmt.usd(preNolTI) + ' pre-NOL taxable-income proxy).');
+      }
+      notes.push('The 80% cap uses a proxy for pre-NOL taxable income (income fields less ' +
+        'above-the-line adjustments and the larger of standard/entered itemized deductions; ' +
+        'the SE-tax deduction and QBI are not in the proxy, so the cap runs slightly ' +
+        'generous) — verify against actual projected taxable income before filing.');
       notes.push('The NOL deduction does not reduce the §199A QBI base (modeled correctly here); ' +
         'any separate §199A qualified business loss carryover must be handled in the QBI inputs.');
     }

@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'Section 105 Medical Reimbursement Plan (Spouse Employee)',
   category: 'Health & Fringe',
   applyOrder: 75,
+  conflictsWith: ['se-health-insurance', 'spouse-health-s-corp', 'ichra', 'qsehra'],
+  conflictNote: 'The MERP already deducts the family premiums and medical costs — modeling them again under either SEHI strategy double-counts; and as a group health plan the MERP statutorily disqualifies a QSEHRA and overlaps an ICHRA in the spouse-employee shop.',
 
   advisor: {
     summary:

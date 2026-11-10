@@ -43,8 +43,10 @@ TSIQ.strategyModules.push({
       'The entity form is the gate: an S corporation (or any corporation, or ' +
       'a partnership with a non-parent partner) does NOT qualify for the ' +
       'FICA exemption — the corporation is the employer, not the parent. A ' +
-      'Family Management Company structure can restore the exemption for ' +
-      'S-corp owners (see that strategy).',
+      'Family Management Company conduit is promoted as restoring the ' +
+      'exemption for S-corp owners, but no authority directly blesses it and ' +
+      'the fee carries §482 / assignment-of-income exposure (see that ' +
+      'strategy) — direct parental employment is the supported structure.',
       'The wages fund follow-on planning: the child now has compensation ' +
       'supporting a Roth IRA contribution and, if the plan permits, 401(k) ' +
       'deferrals (see the companion advisory strategies).'
@@ -67,6 +69,7 @@ TSIQ.strategyModules.push({
       'Wages disproportionate to the work performed are the classic exam adjustment — Eller allowed the concept but cut inflated amounts.',
       'No timesheets, no job description, round-number December payments: the fact pattern that loses. Documentation is the whole defense.',
       'Running the wages through an S corporation by mistake forfeits the FICA exemption — entity form must be checked first.',
+      'The Family Management Company conduit is a promoted structure with no direct blessing authority: the IRS can reallocate or recharacterize the management fee (§482 / assignment-of-income principles), collapsing the payroll-tax benefit. Only direct employment by a parent\'s sole prop or parent-only partnership is squarely within §3121(b)(3)(A).',
       'Money routed back to the parent (child\'s "wages" spent by the parent) undermines the bona fides; the child must actually receive and own the funds.',
       'State child-labor and payroll registration requirements still apply even for a parent\'s business.'
     ],
@@ -108,16 +111,17 @@ TSIQ.strategyModules.push({
     ],
     considerations: [
       'The work must be real and the pay must match the job — this is not a paper transaction, and we document everything.',
-      'If your business is an S corporation, we route the wages through a small family management company so the payroll-tax exemption still applies — a one-time setup we handle.'
+      'If your business is an S corporation, the payroll-tax exemption does not apply directly. Some families set up a separate small management company to try to restore it, but the IRS has never specifically approved that arrangement — we treat it as a higher-risk option and will discuss honestly whether it is worth it in your case.'
     ]
   },
 
   inputs: [
     { key: 'numChildren', label: 'Number of children employed', type: 'number', default: 1 },
     { key: 'wagesPerChild', label: 'Annual wages per child', type: 'currency', default: 16100 },
-    { key: 'payer', label: 'Who pays the kids', type: 'select', default: 'fmc',
+    { key: 'payer', label: 'Who pays the kids', type: 'select', default: 'direct',
       options: [
-        { value: 'fmc', label: 'Sole prop / Family Mgmt Co (no FICA)' },
+        { value: 'direct', label: 'Parent\'s sole prop / parent partnership direct (no FICA)' },
+        { value: 'fmc', label: 'Family Mgmt Co conduit (no FICA — promoted structure, higher audit risk)' },
         { value: 'scorp', label: 'S-corp direct payroll (FICA applies)' }
       ] }
   ],
@@ -133,20 +137,25 @@ TSIQ.strategyModules.push({
   },
 
   /**
-   * Two payer modes. Kids are always assumed at 0% income tax (default wage
+   * Three payer modes. Kids are always assumed at 0% income tax (default wage
    * equals the 2026 standard deduction; a note flags any excess).
    *
-   * 'fmc' — Sole prop / Family Management Company (FICA-EXEMPT wages,
-   *   §3121(b)(3)(A)):
-   *   • If Schedule C profit exists, the sole prop employs the kids directly:
-   *     wages deducted from scheduleCNet, saving income tax AND SE tax.
-   *   • Otherwise, if S-corp/K-1 income exists, the FMC flow: the S corp pays
-   *     the parents' FMC (a sole prop) a management fee, the FMC pays the
-   *     kids, and the FMC's Schedule C nets to ~zero (fee in = wages out).
-   *     Modeled as a deduction against passthroughK1 — income shifted out of
-   *     the S corp to the kids with NO payroll tax anywhere. Savings = wages
-   *     × the parents' marginal rate (the engine computes it exactly,
-   *     including the QBI interaction).
+   * 'direct' (DEFAULT — the conservative structure §3121(b)(3)(A) directly
+   *   supports): the parent's existing sole prop (or parent-only partnership)
+   *   employs the kids. Wages deducted from scheduleCNet, saving income tax
+   *   AND SE tax, FICA-exempt. If there is no Schedule C income, nothing is
+   *   modeled — a note points at the (riskier) FMC conduit or S-corp payroll.
+   *
+   * 'fmc' — Family Management Company conduit for S-corp owners: the S corp
+   *   pays the parents' FMC (a sole prop) a management fee, the FMC pays the
+   *   kids, and the FMC's Schedule C nets to ~zero (fee in = wages out).
+   *   Modeled as a deduction against passthroughK1 — income shifted out of
+   *   the S corp to the kids with NO payroll tax anywhere. Savings = wages
+   *   × the parents' marginal rate (the engine computes it exactly,
+   *   including the QBI interaction). This is a PROMOTED structure with no
+   *   direct blessing authority — §482 / assignment-of-income exposure on the
+   *   fee — so it is deliberately NOT the default. If Schedule C profit
+   *   exists, the direct path is used instead (the conduit is unnecessary).
    *
    * 'scorp' — the S corporation employs the kids directly. No under-18
    *   exemption inside a corporation: FICA applies. The entity deducts wages
@@ -163,7 +172,7 @@ TSIQ.strategyModules.push({
     var kids = Math.max(0, Math.round(params.numChildren || 0));
     var perChild = params.wagesPerChild || 0;
     var totalWages = kids * perChild;
-    var payer = params.payer || 'fmc';
+    var payer = params.payer || 'direct';
     if (totalWages <= 0) return { profile: p, notes: notes };
 
     if (payer === 'scorp') {
@@ -192,40 +201,63 @@ TSIQ.strategyModules.push({
           ' of payroll tax (15.3%) is included in the math. Compare against the ' +
           'Sole prop / FMC option, which avoids it entirely.');
       }
-    } else {
-      // ---- Sole prop / FMC: FICA-exempt under §3121(b)(3)(A) ----
-      if (p.scheduleCNet > 0) {
-        // Parent's existing sole prop employs the kids directly.
-        p.scheduleCNet = p.scheduleCNet - totalWages;
-        p.entityW2Wages = (p.entityW2Wages || 0) + totalWages;
-        if (yearIndex === 0) {
-          notes.push(TSIQ.fmt.usd(totalWages) + ' of wages to ' + kids +
-            ' child(ren) deducted from Schedule C — saves income tax AND self-employment ' +
-            'tax; wages are FICA-exempt under §3121(b)(3)(A).');
-          if (totalWages > profile.scheduleCNet) {
-            notes.push('Total wages exceed Schedule C profit, creating a loss — confirm ' +
-              'the wage level is supportable by actual services.');
-          }
+    } else if (p.scheduleCNet > 0) {
+      // ---- Direct employment ('direct' or 'fmc' with Schedule C income —
+      // the conduit is unnecessary when a qualifying direct employer exists):
+      // the parent's sole prop / parent partnership employs the kids.
+      // FICA-exempt under §3121(b)(3)(A). ----
+      p.scheduleCNet = p.scheduleCNet - totalWages;
+      p.entityW2Wages = (p.entityW2Wages || 0) + totalWages;
+      if (yearIndex === 0) {
+        notes.push(TSIQ.fmt.usd(totalWages) + ' of wages to ' + kids +
+          ' child(ren) deducted from Schedule C — saves income tax AND self-employment ' +
+          'tax; wages are FICA-exempt under §3121(b)(3)(A).');
+        if (payer === 'fmc') {
+          notes.push('Schedule C income exists, so the sole prop employs the children ' +
+            'directly — no Family Management Company conduit is needed (or modeled). ' +
+            'Direct parental employment is the structure §3121(b)(3)(A) directly supports.');
         }
-      } else if (p.passthroughK1 > 0) {
-        // FMC flow: S corp → management fee → FMC (Schedule C nets ~zero) →
-        // kids. Income leaves the S corp; no FICA anywhere in the chain.
-        p.passthroughK1 = p.passthroughK1 - totalWages;
-        if (yearIndex === 0) {
-          notes.push('Family Management Company flow: the S corp pays the parents\' FMC a ' +
-            TSIQ.fmt.usd(totalWages) + ' management fee, the FMC pays the kids, and the ' +
-            'FMC\'s Schedule C nets to zero (fee in = wages out). Income shifts out of ' +
-            'the S corp to the kids with no payroll tax — savings run at the parents\' ' +
-            'marginal rate. The fee must be arm\'s-length for real family-payroll ' +
-            'services, with an FMC management agreement in the file.');
+        if (totalWages > profile.scheduleCNet) {
+          notes.push('Total wages exceed Schedule C profit, creating a loss — confirm ' +
+            'the wage level is supportable by actual services.');
         }
-      } else {
-        if (yearIndex === 0) {
-          notes.push('No business income found (Schedule C or K-1) — nothing to deduct ' +
-            'the kids\' wages against. No benefit modeled.');
-        }
-        return { profile: p, notes: notes };
       }
+    } else if (payer === 'fmc' && p.passthroughK1 > 0) {
+      // ---- FMC conduit: S corp → management fee → FMC (Schedule C nets
+      // ~zero) → kids. Income leaves the S corp; no FICA anywhere in the
+      // chain. Promoted structure — see risk note below. ----
+      p.passthroughK1 = p.passthroughK1 - totalWages;
+      if (yearIndex === 0) {
+        notes.push('Family Management Company flow: the S corp pays the parents\' FMC a ' +
+          TSIQ.fmt.usd(totalWages) + ' management fee, the FMC pays the kids, and the ' +
+          'FMC\'s Schedule C nets to zero (fee in = wages out). Income shifts out of ' +
+          'the S corp to the kids with no payroll tax — savings run at the parents\' ' +
+          'marginal rate.');
+        notes.push('RISK: the FMC conduit is a promoted structure with no statute, ' +
+          'regulation, or case directly blessing it — the §3121(b)(3)(A) exemption by ' +
+          'its terms covers a parent\'s own sole prop or parent-only partnership, and ' +
+          'the IRS can recharacterize the management fee under §482 / assignment-of-' +
+          'income principles. The fee must be arm\'s-length for real family-payroll ' +
+          'services, with an FMC management agreement in the file. The modeled savings ' +
+          'assume the structure is respected.');
+      }
+    } else if (p.passthroughK1 > 0) {
+      // 'direct' selected, but only S-corp/K-1 income exists — no qualifying
+      // direct employer. Conservative default models nothing.
+      if (yearIndex === 0) {
+        notes.push('Direct parental employment selected, but no sole prop / parent ' +
+          'partnership income found — §3121(b)(3)(A) does not apply to a corporation\'s ' +
+          'payroll. Options: run the wages through the S corp (switch the payer to ' +
+          'S-corp direct payroll; FICA applies), or evaluate the Family Management ' +
+          'Company conduit, a higher-risk promoted structure. No benefit modeled.');
+      }
+      return { profile: p, notes: notes };
+    } else {
+      if (yearIndex === 0) {
+        notes.push('No business income found (Schedule C or K-1) — nothing to deduct ' +
+          'the kids\' wages against. No benefit modeled.');
+      }
+      return { profile: p, notes: notes };
     }
 
     if (yearIndex === 0) {

@@ -12,6 +12,11 @@ TSIQ.strategyModules.push({
   name: 'Safe Harbor 401(k) Design',
   category: 'Retirement',
   applyOrder: 68,
+  conflictsWith: ['solo-401k', 'sep-ira', 'simple-ira',
+    'profit-sharing-new-comparability', 'cash-balance-stack'],
+  conflictNote: 'Safe harbor is a design feature of one 401(k) — selecting it alongside ' +
+    'another 401(k)-based strategy stacks deductions without a shared §415(c) cap; model ' +
+    'a legally combined plan by adjusting a single strategy\'s inputs instead.',
   modeled: false,
 
   advisor: {

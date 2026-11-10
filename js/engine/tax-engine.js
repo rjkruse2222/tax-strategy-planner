@@ -112,7 +112,7 @@ window.TSIQ = window.TSIQ || {};
       entityW2Wages: 0, isSSTB: false, rentalNet: 0, rentalLossesUsable: true,
       ltcg: 0, qualDiv: 0, interest: 0, otherIncome: 0,
       propertyTax: 0, mortgageInterest: 0, charitable: 0, otherItemized: 0,
-      stateRate: 0, ptetPaid: 0,
+      stateRate: 0, ptetPaid: 0, stateAddback: 0,
       kidsCTC: 0, otherDeps: 0,
       fedWithholding: 0, fedEstimates: 0, stateWithholding: 0, stateEstimates: 0,
       // Generic hooks set by strategies:
@@ -167,8 +167,10 @@ window.TSIQ = window.TSIQ || {};
     var agi = totalIncome - seDeduction - p.adjustments;
 
     // ---- State tax (flat effective rate — documented simplification).
+    // stateAddback restores federal-only deductions (e.g., the PTET the entity
+    // deducted) to the state base, since credit states add them back.
     // PTET paid at the entity level credits against the personal liability. ----
-    var stateTaxGross = Math.max(0, agi) * p.stateRate;
+    var stateTaxGross = Math.max(0, agi + p.stateAddback) * p.stateRate;
     var personalStateTax = Math.max(0, stateTaxGross - p.ptetPaid);
 
     // ---- Itemized vs standard, with OBBBA SALT cap phase-down ----

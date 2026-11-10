@@ -6,7 +6,8 @@ app's **Import Client File** button. One file per client.
 ## Rules for producing a client file from a tax return
 
 1. **Never invent numbers.** Extract only what the return shows. If a value is
-   not determinable, omit the key (the app keeps its default) and add a
+   not determinable, omit the key (importing resets the form first, so an
+   omitted key gets the app's default — never a stale value) and add a
    question to `notes` (e.g., "Could not find K-1 ordinary income — confirm").
 2. Map to **the profile keys below** — they match the app's Section 1 fields.
 3. All dollar amounts are plain numbers (no strings, no commas).
@@ -30,13 +31,16 @@ app's **Import Client File** button. One file per client.
   "profile": {
     "filingStatus": "mfj",          // single | mfj | mfs | hoh
     "wages": 0,                      // W-2 wages from outside jobs
+    "ownerWages": 0,                 // W-2 wages the client's own S-corp already pays them
     "scheduleCNet": 0,               // Schedule C net profit
     "passthroughK1": 0,              // S-corp/partnership ordinary income
-    "entityW2Wages": 0,              // W-2 wages paid by the entity (§199A)
+    "entityW2Wages": 0,              // W-2 wages paid by the entity (§199A) — include ownerWages
     "isSSTB": false,
     "rentalNet": 0,                  // Schedule E net rental
     "rentalLossesUsable": true,
-    "ltcg": 0, "qualDiv": 0, "interest": 0, "otherIncome": 0,
+    "ltcg": 0,
+    "ltcgOneTime": false,            // true = one-time sale; excluded from projection years 2+
+    "qualDiv": 0, "interest": 0, "otherIncome": 0,
     "propertyTax": 0, "mortgageInterest": 0, "charitable": 0, "otherItemized": 0,
     "kidsCTC": 0,                    // qualifying children under 17
     "otherDeps": 0,
@@ -55,9 +59,27 @@ app's **Import Client File** button. One file per client.
   "notes": [
     "Rental depreciation on Sch E looked like straight-line only — cost seg candidate.",
     "Confirm whether either spouse has an employer 401(k)."
-  ]
+  ],
+  "plan": {
+    "scenarios": {
+      "sc2": {
+        "label": "Scenario 2",
+        "selections": [
+          { "id": "s-corp-election", "params": { "salary": 95000 } }
+        ]
+      },
+      "sc3": { "label": "Scenario 3 (optional)", "selections": [] }
+    },
+    "fees": { "planning": 5000, "annual": 0 }
+  }
 }
 ```
+
+`plan` is optional and is written automatically by **Export Client File** — it
+saves the scenario checkboxes, per-strategy parameters, scenario labels, and
+pitch-deck fees so a plan can be reopened later exactly as built. Files
+produced by the Claude review workflow normally omit it. On import, unknown
+strategy ids and conflict-locked selections are skipped with a visible note.
 
 ## Confidentiality
 

@@ -122,9 +122,11 @@ TSIQ.strategyModules.push({
    * income, added to wages) and COSTS FICA. Business income is reduced by
    * salary + the employer FICA share (deductible); salary is added to wages;
    * the modeled benefit is the 401(k) deferral, capped at min(election,
-   * salary, §402(g) limit), added to adjustments. The employee-side FICA
-   * (7.65% withheld from the spouse's pay) is a real cash cost that does not
-   * appear in the income-tax comparison — flagged in a note.
+   * salary, §402(g) limit), added to adjustments. The engine charges no
+   * payroll tax on `wages`, so the full FICA on the spouse's salary — both
+   * employer and employee halves, a real household cash cost — is charged
+   * here via otherTaxes (partly offset by the shrunken SE base when the
+   * salary is paid from Schedule C).
    */
   apply: function (profile, params, yearIndex, state) {
     var p = Object.assign({}, profile);
@@ -140,9 +142,14 @@ TSIQ.strategyModules.push({
     }
 
     var salary = params.spouseSalary || 0;
+    var f = tb.fica;
     // Employer share of FICA: half of the combined SS + Medicare rates.
-    var employerFica = salary * ((tb.fica.ssRate + tb.fica.medicareRate) / 2);
+    var employerFica = salary * ((f.ssRate + f.medicareRate) / 2);
     var totalCost = salary + employerFica;
+    // Full FICA on the spouse's wages (both halves). SS portion capped at the
+    // wage base — assumes the spouse has no other W-2 wages against it.
+    var spouseFica = Math.min(salary, f.ssWageBase) * f.ssRate +
+      salary * f.medicareRate;
 
     if (p.scheduleCNet > 0) {
       p.scheduleCNet = p.scheduleCNet - totalCost;
@@ -150,6 +157,7 @@ TSIQ.strategyModules.push({
       p.passthroughK1 = p.passthroughK1 - totalCost;
     }
     p.wages = (p.wages || 0) + salary;
+    p.otherTaxes = (p.otherTaxes || 0) + spouseFica;
 
     var deferral = Math.min(
       params.spouse401kDeferral || 0,
@@ -161,9 +169,10 @@ TSIQ.strategyModules.push({
     if (yearIndex === 0) {
       notes.push('Spouse salary of ' + TSIQ.fmt.usd(salary) + ' is income-tax neutral on a ' +
         'joint return (deducted from the business, added to wages) and COSTS FICA: ' +
-        TSIQ.fmt.usd(employerFica) + ' employer share is deducted here, and a matching ' +
-        'employee share is withheld from the spouse\'s pay (a real cash cost not shown ' +
-        'in this comparison).');
+        TSIQ.fmt.usd(spouseFica) + ' of combined employer + employee payroll tax is ' +
+        'included in this comparison, partly offset by the smaller SE base when the ' +
+        'salary is paid from Schedule C. If the spouse has other W-2 wages, the Social ' +
+        'Security portion may differ — coordinate the wage base across employers.');
       notes.push('Modeled benefit: ' + TSIQ.fmt.usd(deferral) + ' 401(k) deferral (capped at ' +
         'salary and the ' + TSIQ.fmt.usd(tb.limits.retirement.electiveDeferral401k) +
         ' §402(g) limit) plus unmodeled value — Social Security credits and fringe access.');

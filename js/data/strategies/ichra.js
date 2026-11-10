@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'ICHRA',
   category: 'Health & Fringe',
   applyOrder: 74,
+  conflictsWith: ['qsehra', 'section-105-merp'],
+  conflictNote: 'An employer cannot offer both an ICHRA and a QSEHRA (a QSEHRA requires having NO group health plan), and in a spouse-employee shop a §105 MERP reimburses the same medical dollars this strategy would.',
 
   advisor: {
     summary:
@@ -148,6 +150,7 @@ TSIQ.strategyModules.push({
     }
     if (yearIndex === 0) {
       notes.push('Employees must maintain individual-market coverage; >2% S-corp shareholders cannot participate tax-free. Employer deduction only is modeled.');
+      notes.push('The ' + TSIQ.fmt.usd(amt) + ' modeled is NEW cash paid to employees each year — the tax saving is only roughly your marginal rate on that outlay, not the outlay itself. Weigh it as a compensation/benefits decision, not free money.');
     }
     return { profile: p, notes: notes };
   }

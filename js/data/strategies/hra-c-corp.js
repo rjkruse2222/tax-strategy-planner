@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'HRA for C-Corps',
   category: 'Health & Fringe',
   applyOrder: 72,
+  conflictsWith: ['qsehra'],
+  conflictNote: 'A traditional C-corp HRA is a group health plan, and a QSEHRA requires the employer to offer NO group health plan (§9831(d)(3)(B)(ii)) — the two cannot coexist unless the QSEHRA itself is the only arrangement.',
   modeled: false,
 
   advisor: {

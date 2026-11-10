@@ -97,7 +97,7 @@ TSIQ.strategyModules.push({
 
   inputs: [
     { key: 'days', label: 'Rental days per year (max 14)', type: 'number', default: 12, max: 14 },
-    { key: 'dailyRate', label: 'Documented daily rate', type: 'currency', default: 1000 }
+    { key: 'dailyRate', label: 'Documented daily rate', type: 'currency', default: 500 }
   ],
 
   suggest: function (p) {
@@ -126,6 +126,12 @@ TSIQ.strategyModules.push({
       p.passthroughK1 = p.passthroughK1 - rent;
       if (yearIndex === 0) {
         notes.push(TSIQ.fmt.usd(rent) + ' rent (' + days + ' days) deducted by the entity; excluded from personal income under §280A(g).');
+        notes.push('RATE SUPPORT REQUIRED: the tool models whatever daily rate is entered — ' +
+          'it does not validate it. The rate must be backed by 2-3 written comparable quotes ' +
+          'from local venues (hotel conference rooms, event spaces) for similar capacity and ' +
+          'duration. In Sinopoli v. Comm\'r, T.C. Memo 2023-105, unsupported rents of ' +
+          '$3,000+/meeting were cut to roughly $500/day — the conservative $500 default here ' +
+          'reflects that; raise it only with comps in the file.');
       }
     } else {
       notes.push('Requires a separate business entity as the tenant — a sole proprietor ' +

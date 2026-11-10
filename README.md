@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/30095645/README.md)
 # Tax Strategy Planner
 
 A tax planning tool: input client return data, apply strategies from the library,
@@ -28,15 +27,35 @@ and everything is theirs.
 
 ## Importing a prior-year return
 
-Two ways to get a return into the app:
+Three ways to get a return into the app:
 
+- **Import CCH Planner (.pln)** — reads a CCH ProSystem fx Planning plan file
+  directly in your browser. Pick the case and year column, review every
+  figure against the Planner's own computed lines, then Apply.
 - **Import Return (PDF)** — reads a software-generated return PDF directly in
   your browser (nothing leaves your computer, no AI involved). Parsed figures
   appear in a review screen with the return's own AGI/taxable-income/total-tax
   lines for tie-out; nothing fills in until you click Apply. Scanned returns
   aren't supported (no text layer) — use the Claude workflow for those.
 - **Import Client File** — loads a `.tsiq.json` produced by the Claude review
-  workflow (which also suggests strategies with reasons) or by Export.
+  workflow (which also suggests strategies with reasons) or by Export. Export
+  now saves the whole plan (scenario selections, parameters, labels, fees), so
+  a client's plan can be reopened later exactly as built.
+
+Every import **resets the client form first** — a new client can never inherit
+values from the previous one.
+
+## Round-trip with CCH Planning
+
+The intended loop for CCH shops: build the plan in Planning → **Import CCH
+Planner (.pln)** here → model strategies and print the comparison → click
+**CCH Planner Tie-Back Sheet** (next to the report buttons) to get each
+scenario's post-strategy input values per year, labeled with Planning row
+names → key them into Planner cases (Baseline → Case 1, Scenario 2 → Case 2…)
+and let CCH verify the numbers with its full engine for the final client
+deliverable. Small differences are expected (this tool doesn't model AMT,
+SS-taxability phase-ins, or state detail); large ones mean a keying or
+modeling gap.
 
 ## How to use it
 
@@ -62,11 +81,11 @@ Two ways to get a return into the app:
 
 ## The strategy library
 
-100 strategies across 10 categories (Entity Structure, QBI Optimization,
+123 strategies across 10 categories (Entity Structure, QBI Optimization,
 Payroll & Family, Retirement, Health & Fringe, Real Estate & Cost Recovery,
 Business Expenses, Income Timing & Character, Credits & Incentives,
-Succession & Exit). 56 are **modeled** (they change the scenario math);
-44 are **advisory** (structural/planning items shown in the library and plan
+Succession & Exit). 60 are **modeled** (they change the scenario math);
+63 are **advisory** (structural/planning items shown in the library and plan
 documents without pretending to have computable savings). Use the search box
 in Section 2 to find anything fast.
 
@@ -80,6 +99,22 @@ in Section 2 to find anything fast.
 
 The library cards, scenario checkboxes, PDF, slideshow, and pitch deck all
 pick it up automatically.
+
+## Testing
+
+Two checks, both run from the project folder (Node.js required):
+
+```
+node scripts/validate-strategies.js        # schema + math smoke test of every strategy
+NODE_PATH=$(npm root -g) node scripts/e2e-smoke.js   # headless end-to-end (needs playwright)
+```
+
+The end-to-end test opens the real app in headless Chromium, fills a synthetic
+client, selects strategies in both scenarios, runs the comparison, opens all
+five client outputs, confirms the pitch deck stays anonymized, and round-trips
+Export → Import. Install the browser once with `npx playwright install chromium`.
+Screenshots and the exported sample land in `e2e-out/` (gitignored). No real
+client data is used.
 
 ## Working on this with Claude Code
 
@@ -95,5 +130,7 @@ Just open a session in this folder and ask for what you want, e.g.:
 ## Scope notes (v1)
 
 Federal 2026 law per Rev. Proc. 2025-32 / OBBBA. State tax uses a flat effective
-rate. Not yet modeled: AMT, depreciation recapture on sale, §461(l). See
-`CLAUDE.md` for the full list.
+rate. Not yet modeled: AMT, depreciation recapture on sale, §461(l), the
+refundable ACTC portion of the child tax credit, excess-SS-withholding
+coordination across employers, and Social Security taxability phase-ins.
+Projection years 2+ reuse the 2026 tables (no inflation indexing).

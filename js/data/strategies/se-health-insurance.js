@@ -10,6 +10,8 @@ TSIQ.strategyModules.push({
   name: 'Self-Employed Health Insurance Optimization',
   category: 'Health & Fringe',
   applyOrder: 76,
+  conflictsWith: ['spouse-health-s-corp', 'section-105-merp'],
+  conflictNote: 'Models the same premium dollars as the S-Corp 2% Shareholder Health Insurance strategy (S-corp pattern) and the §105 MERP (which reimburses the premiums as a Schedule C deduction) — pick the one matching the entity; stacking double-counts.',
 
   advisor: {
     summary:
@@ -130,8 +132,12 @@ TSIQ.strategyModules.push({
   /**
    * Above-the-line §162(l) deduction via `adjustments` (income tax only — no
    * SE tax effect, correct per §1402). Capped at available business earned
-   * income (scheduleCNet + ownerWages + passthroughK1 — a simplification of
-   * the per-business earned-income limit). Also reduces QBI (Form 8995
+   * income: Schedule C net profit (SE earned income) plus the owner's own W-2
+   * wages from their entity. K-1 ordinary income is NOT earned income for
+   * §162(l) — an S-corp shareholder's cap is their wages from the corporation
+   * (§162(l)(5)(A); Form 7206 instructions), matching spouse-health-s-corp.
+   * Summing the two branches is a simplification of the per-business
+   * earned-income limit for mixed profiles. Also reduces QBI (Form 8995
    * instructions) via `qbiReduction`. Baseline is assumed NOT to already
    * include the deduction — use for clients not currently claiming it.
    */
@@ -140,10 +146,13 @@ TSIQ.strategyModules.push({
     var notes = [];
     var premiums = params.annualPremiums || 0;
     var earnedCap = Math.max(0, p.scheduleCNet || 0) +
-                    Math.max(0, p.ownerWages || 0) +
-                    Math.max(0, p.passthroughK1 || 0);
+                    Math.max(0, p.ownerWages || 0);
     if (earnedCap <= 0) {
-      notes.push('§162(l) is limited to earned income from the business — no business earnings found in this profile. No benefit modeled.');
+      if (p.passthroughK1 > 0) {
+        notes.push('§162(l) is limited to earned income — for an S-corp owner that means W-2 wages from the corporation, not K-1 ordinary income. No owner wages in this profile, so no deduction is supported; the premiums must first be run through payroll (see the S-Corp 2% Shareholder Health Insurance strategy). No benefit modeled.');
+      } else {
+        notes.push('§162(l) is limited to earned income from the business — no business earnings found in this profile. No benefit modeled.');
+      }
       return { profile: p, notes: notes };
     }
     var deductible = Math.min(premiums, earnedCap);
