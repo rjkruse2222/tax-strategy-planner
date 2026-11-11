@@ -7,6 +7,9 @@ here — only structure, offsets, and encodings. The two versions turned out to
 be **byte-compatible for everything the parser reads**; see §11 for the
 version-specific caveats.
 
+§12 covers **writing**: patching input cells in a copy of a plan. It was
+verified on 2026.01000 only, and the repo has no writer.
+
 ## 1. Container
 
 A `.pln` is a plain **ZIP** archive (local file headers + central directory +
@@ -330,7 +333,9 @@ CTC-qualifying children — warned).
   sampler values in the reference plan made the candidate offsets ambiguous.
 - **Dependent birth dates / CTC eligibility** — not located.
 - **`entityW2Wages`** (§199A wage-limit wages on K-1s): the K-1 input screens
-  (case screen 419) hold them but were empty in both samples.
+  (case screen 419) hold them but were empty in both samples. See §12.4: a
+  Qualified Wages input cell has since been located on the QBI input screen
+  (984).
 - **SE tax / total-tax-after-credits reference rows**: the grid's tax-section
   slots (§6 slot 246+) demonstrably differ between the two producer versions,
   so only slot 281 (2025.02000, emitted when > 0) and the validated regular
@@ -365,3 +370,203 @@ Everything above is byte-identical across the two versions **except**:
 
 The parser is layout-guarded at runtime everywhere: a future layout change
 degrades to "field omitted + warning", never a wrong number.
+
+## 12. Writing a `.pln` (patching input cells in a copy)
+
+Sections 1 to 11 are about reading. This section records what was proven on
+2026-11-11 by patching a real plan written by **Planning 2026.01000** and
+opening the result in the Planner. Nothing here has been tried on 2025.02000
+or any other version. As above, no client data appears: structure, offsets
+and encodings only.
+
+This repo has **no writer**. `js/engine/pln-parser.js` only reads. The working
+reference is two Python scripts (`plnlib.py`, `pln_patch.py`) kept with firm
+working files outside the repo. A writer for this app is proposed, not built,
+in `docs/pln-write-back-design.md`.
+
+What is known to work is narrow: **changing the value of an input cell that
+already exists in the plan.** Nothing else.
+
+### 12.1 Container fields a writer must reproduce
+
+The reader takes sizes from the central directory and never looks at the
+fields below, which is why §1 does not mention them. A writer has to get them
+right.
+
+| Member           | Method        | On a rewrite                               |
+|------------------|---------------|--------------------------------------------|
+| `FileInfo`       | 8 (DEFLATE)   | copied through, compressed bytes unchanged |
+| `FileData`       | 9 (Deflate64) | re-encoded (§12.2)                         |
+| `<ClientID>.log` | 9 (Deflate64) | copied through, compressed bytes unchanged |
+
+`FileData` carries general-purpose flags **`0x000a`**: bit 3 (`0x0008`, a data
+descriptor follows the member data) plus bit 1 (`0x0002`, one of the two
+compression-option bits the ZIP specification defines for the deflate methods;
+a hint about the compressor setting, not something a reader needs in order to
+decode the data).
+
+The Planner's use of bit 3 is unusual in one respect. The ZIP specification
+has a writer zero the CRC-32 and both sizes in the local header when bit 3 is
+set. The Planner writes the **real** CRC-32, compressed size and uncompressed
+size in the local header **and** follows the data with a signed 16-byte data
+descriptor:
+
+```
+"PK\x07\x08"   u32 crc32   u32 compressed size   u32 uncompressed size
+```
+
+A rewrite keeps method 9, the flags, the version fields, the DOS time and
+date, the names, the extra fields, the attributes, the member order and the
+archive comment exactly as found. It changes only what follows from the new
+data:
+
+- `FileData`'s compressed bytes;
+- its CRC-32 and compressed size, in three places: local header, data
+  descriptor, central-directory entry (the uncompressed size does not change
+  when cells are patched in place);
+- the local-header offset stored in the central directory for each member that
+  sits after `FileData`;
+- the central-directory offset in the end-of-central-directory record.
+
+### 12.2 Producing a `FileData` stream the Planner accepts
+
+The Planner reads `FileData` as Deflate64, and the reference keeps it labeled
+method 9. zlib (and so Python's and Node's `zlib` modules) and the browser's
+`CompressionStream` write classic DEFLATE only, and a classic stream cannot
+simply be relabeled as method 9: the two formats give different meanings to
+length code 285 and to distance codes 30 and 31 (§1). An ordinary compressor
+uses length code 285 constantly on this kind of data, because it is the code
+for a 258-byte match and long runs of zero bytes compress to exactly that.
+
+What works is a raw deflate stream made of **literals only**. With no matches
+there are no length or distance codes at all, so the three symbols the two
+formats read differently never occur, and the stream is valid as both classic
+DEFLATE and Deflate64. zlib produces this with the `Z_HUFFMAN_ONLY` strategy:
+
+```
+Python:  zlib.compressobj(9, zlib.DEFLATED, -15, 9, zlib.Z_HUFFMAN_ONLY)
+```
+
+(`-15` selects a raw stream with no zlib header or trailer.) The Planner
+opened a plan whose `FileData` was re-encoded this way, with method 9, the
+original header fields and the data descriptor kept as in §12.1.
+
+Checked for this note on **synthetic data only**, not on the Planner:
+
+- The parser's bundled inflater, in Deflate64 mode, reads a `Z_HUFFMAN_ONLY`
+  stream back byte for byte. zlib emitted dynamic-Huffman blocks only for
+  that stream (no stored blocks, no fixed-Huffman blocks).
+- The same inflater, told the stream is Deflate64, fails on an ordinary zlib
+  level-9 stream of the same data. That is the relabeling failure described
+  above.
+- A stream of stored blocks only also reads back in Deflate64 mode. Whether
+  the Planner accepts a stored-only or fixed-Huffman-only stream has not been
+  tried. Only `Z_HUFFMAN_ONLY` output has been opened there.
+
+A literal-only stream is larger than the Planner's own, so a patched file is
+bigger than its source. That is expected.
+
+### 12.3 The Planner recalculates on open
+
+On every open the Planner recalculates the whole plan and re-runs AutoFlow.
+Three things follow.
+
+**Only input cells need patching.** Stored computed values (the summary grid
+of §6, the worksheets of §7, the computed copies of an input inside its own
+record) are replaced when the Planner opens the file, so a patch leaves them
+alone.
+
+**A raw patched file is stale inside.** Until the Planner has opened the file
+and saved it again, every stored computed value still reflects the old inputs.
+`pln-parser.js` reads stored computed values, so importing a raw patched file
+returns the **old** totals. For the cells in §12.4 every tie-out check in the
+parser still passes, because the parser never reads screens 559 or 984 and
+the stale values it does read are consistent with each other. Open the
+patched file in the Planner, check it, save it, and import or deliver the
+saved copy, never the raw patch.
+
+**Later year columns can follow earlier ones.** A year column that has no
+entry of its own for an input takes the earlier column's value on load, even
+though the file stores a value in that cell. A patch to one column therefore
+also moves every later column that follows it, and a value patched into a
+following column is not what the Planner will show. What marks a cell as
+having its own entry has not been located in the file.
+
+### 12.4 Input cells identified
+
+All are in section 0 (the federal plan) of a case-year chunk, and all are
+float64 LE (§5). A record is addressed by
+`(caseId, yearColumn, section, screen id, instance)` (§3.1 to §3.3); plan
+case 1 is `caseId` 2. On both screens the doubles sit on the same 8-byte grid
+as the summary screen: slot `k` at payload `+0x63 + 8*k`.
+
+| Planner input                                                      | Screen | Instance        | Offset (slot) |
+|--------------------------------------------------------------------|--------|-----------------|---------------|
+| Passthrough K-1 activity: "Ordinary or Other Rental Income (Loss)" | 559    | activity number | +0x7b (3)     |
+| Passthrough QBI item: "Ordinary Income or Loss"                    | 984    | QBI item number | +0xe3 (16)    |
+| Passthrough QBI item: "Qualified Wages"                            | 984    | QBI item number | +0xa3 (8)     |
+| Passthrough QBI item: "Qualified Property Basis"                   | 984    | QBI item number | +0xab (9)     |
+
+The reference patch script writes the first two rows (one K-1 activity and one
+QBI item, in one year column). The Planner showed the new values and
+recalculated from them. The wages and basis cells were identified on the same
+record.
+
+Notes:
+
+- **The K-1 activity and the QBI item are separate inputs.** The plan examined
+  held different values in 559 +0x7b and 984 +0xe3, so the Planner does not
+  force them equal. A change to passthrough income that should also move QBI
+  has to be written to both. How a QBI item is tied to its activity in the
+  file, if it is tied at all, has not been established.
+- **Computed copies.** In the plan examined, the value entered at 559 +0x7b
+  also appeared at nine other offsets of the same record and on the K-1
+  worksheet, screen 566, at +0xb3 and +0xbb (§7.4). Those are computed; the
+  patch leaves them alone (§12.3). Finding a value in a record does not make
+  that offset the input cell.
+- **Screens 914 and 915** (instances 4465 and up, and 10001) are computed QBI
+  worksheets, not inputs.
+- §8 says the K-1 input screens (case screen 419) hold the §199A wages but
+  were empty in both samples. That was never verified. The Qualified Wages
+  cell above is on the QBI input screen, 984.
+
+### 12.5 What cannot be done by file
+
+**Adding a case or an activity.** Records are full of 32-bit heap pointers
+from the original serialization, beyond the one at +0x18 (§3.1): for example
+at +0x5b, and inside value slots that are otherwise empty. Cloning a case
+chunk, or building a new activity record from an existing one, would copy
+pointers whose meaning is unknown, so it is not safe. Cases and activities
+have to be added in the Planner. The same caution applies to adding a year
+column, which is also a whole chunk (§3.2); that was not tried.
+
+### 12.6 Planner behavior that decides how scenarios are laid out
+
+This is program behavior rather than file format, but it decides what a writer
+should target. In the Planner, **Edit > Copy Case/Column** produces a case
+whose later-year values are overwritten by Year 1 inputs on the next open, or
+on Add Item. It was tested three ways (case copy, column copy, copy with
+AutoFlow off) with the same result. The durable pattern is **one scenario per
+plan file**.
+
+### 12.7 Patch procedure (what the reference does)
+
+1. Read the source and never modify it. Refuse to write over an existing
+   destination file.
+2. Inflate `FileData` as Deflate64 and check its length and CRC-32 against
+   the headers.
+3. Walk the records (§3). For each patch, find the `0x0e` record matching
+   `(caseId, yearColumn, section, screen id, instance)`. Anything other than
+   exactly one match stops the run.
+4. Read the float64 at the payload offset and compare it with the value
+   expected to be there now. Any mismatch stops the run before anything is
+   written.
+5. Overwrite those 8 bytes with the new value.
+6. Re-encode `FileData` literal-only (§12.2), recompute the CRC-32 and sizes,
+   and rewrite the archive (§12.1).
+7. Read the new file back from disk and prove what changed: same member list;
+   `FileInfo` and the log identical, compressed bytes included; `FileData`
+   the same length; every differing byte inside a patched 8-byte cell; the
+   record walk still ending exactly at end of file.
+8. Open the new file in the Planner, confirm the input screens and the
+   recalculated totals, and save. Use the saved copy from then on (§12.3).
