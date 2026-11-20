@@ -5,6 +5,11 @@ without the owner's go-ahead.** Written 2026-11-11. It rests on the facts in
 `docs/pln-format-notes.md` §12 (writing a `.pln`), which were proven on one
 real plan with Planning 2026.01000. No client data appears here.
 
+**Update 2026-11-20.** Phase 0 was approved and is half done. The part that
+needs only files is finished (a read-only survey of 29 real plans; results in
+notes §12.8 to §12.10 and in §7.1 below). The part that needs the Planner has
+not been run. Where the survey changed something, the text below says so.
+
 ## 1. What it would do
 
 Today the loop is: import a `.pln`, model strategies, print the CCH Planner
@@ -25,6 +30,10 @@ This comes first because it is the stronger side of the argument today.
   unwritten cell (entity W-2 wages). The other 13 (both wage rows, Schedule C,
   rental, capital gain, dividends, interest, other income, adjustments, the
   four itemized rows) have no known input cell.
+  *Update 2026-11-20:* the file survey found candidate cells for seven of
+  those 13 rows (§4). None is write-tested yet. Schedule C, rental, capital
+  gain, other income, adjustments and other itemized deductions have no
+  single input cell at all.
 - **Most strategies move more than one row.** A scenario that changes wages,
   adjustments or deductions along with passthrough income would come out half
   written. A half-written plan is worse than an unwritten one if anyone
@@ -33,6 +42,9 @@ This comes first because it is the stronger side of the argument today.
   value patched into a year column that follows an earlier column is not what
   the Planner shows, and the file marker for "this cell has its own entry" is
   unknown.
+  *Update 2026-11-20:* the marker is known (the entered bit, notes §12.8) and
+  setting it by file has held once, on a copied case. Whether it holds for an
+  ordinary later-year write is one of the staged Planner tests (§7.1).
 - **The Planner step stays manual.** Open, check, save. Write-back removes
   typing, not review.
 - **The format is reverse-engineered from one release.** Every new Planning
@@ -81,6 +93,25 @@ From this app:
 
 Qualified Property Basis (984 +0xab) is located but the app does not model
 the UBIA prong, so nothing would ever be written there.
+
+**Candidates from the 2026-11-20 file survey (notes §12.9). None is
+write-tested; none may be written until it is.**
+
+| Tie-Back row                              | Candidate cell                                   |
+|-------------------------------------------|--------------------------------------------------|
+| Outside W-2 wages, Owner W-2 wages        | screen 322 +0x73, per W-2                        |
+| Interest / ordinary dividends             | screen 342 +0x143 (interest), 439 +0x63 (dividends), per activity |
+| Qualified dividends                       | screen 439 +0x163, per dividend activity         |
+| Property tax                              | screen 20 +0x73                                  |
+| Mortgage interest                         | screen 20 +0x93                                  |
+| Charitable contributions                  | screen 422 +0x93, per contribution               |
+| Schedule C net profit                     | none: the net is computed from several rows of screen 557 |
+| Long-term capital gain                    | none: one record per transaction on screen 331   |
+| Rental net, other income, adjustments, other itemized | none found                           |
+
+If every candidate passes its write test, 9 of the 15 rows would be writable.
+The six that would not include adjustments to income, which is where
+retirement, HSA and self-employed health strategies land.
 
 ## 5. Approaches considered
 
@@ -187,6 +218,19 @@ this project avoids. Later-year Tie-Back values are listed in the report as
 values to key. If Phase 0 finds the own-entry marker, later columns that have
 their own entry can be written as well.
 
+*Update 2026-11-20:* the marker is found (notes §12.8), so the writer can tell
+from the file whether a later-year cell is entered or follows. If the staged
+test in §7.1 shows that a value written with the entered bit set holds on
+open, later years can be written in the first version: a cell already entered
+gets the new value, and a cell that follows gets the value plus the bit. Until
+that test passes, the paragraph above stands.
+
+The survey also bears on the dollar-for-dollar assumption: the K-1 worksheet
+line equals the activity's ordinary income in only 158 of 227 activity and
+worksheet pairs, because the worksheet also carries the activity's other
+items. That does not break the rule (it moves by a change, not to a total),
+but it is why the re-check stays mandatory.
+
 ### 6.4 Gates
 
 The writer refuses to produce a file, with a plain message, when any of
@@ -238,6 +282,10 @@ Planner-written streams always containing matches, which is expected for a
 real compressor on this data but has to be confirmed on real plans before it
 ships (§7, item 2).
 
+*Update 2026-11-20:* confirmed. All 29 surveyed plans, written by eight
+producer versions, have between about 12,000 and 62,000 match symbols in
+`FileData`. The literal-only test files have none.
+
 ### 6.7 Encoder
 
 zlib's `Z_HUFFMAN_ONLY` output is what the Planner has opened, and on test
@@ -281,6 +329,36 @@ instance.
 **Go or no-go after Phase 0.** Build if the two wage rows and adjustments to
 income are write-proven, so that the common owner-compensation and retirement
 strategies produce complete files. Otherwise stay with approach C.
+
+### 7.1 Phase 0 status, 2026-11-20
+
+| Item | Status |
+|------|--------|
+| 1. Stored-block stream opens in the Planner | **Not run.** A test file is staged. |
+| 2. Planner streams always contain matches | **Done, yes.** 29 of 29 plans, eight versions. |
+| 3. Qualified Wages write test | **Not run.** Staged. |
+| 4. Own-entry marker | **Found** (entered bit, notes §12.8), decoded on 99.7% of 20,908 case records. Setting it by file held once on a copied case (2026-11-11). The plain later-year test is **not run**; staged. |
+| 5. Where names are stored | **Done.** Template list screens, one per activity type (notes §12.10). |
+| 6. More input cells | **Candidates found from the files for seven rows** (§4). Write tests **not run**; staged for all seven candidate cells (property tax in the second plan only). No single input cell exists for Schedule C net, capital gain, rental net, other income, adjustments or other itemized. |
+| 7. Second plan | **Staged.** The staged tests use a plan other than the one patched on 2026-11-11, plus that one. |
+| 8. Dollar-for-dollar | **Not run.** Staged. The survey shows the worksheet line is not the input in 30% of pairs (§6.3). |
+
+**What is staged.** Five scratch copies of two real plans, kept outside the
+repo: for each plan an untouched control and a patched copy, plus one patched
+copy re-encoded with stored blocks. The first plan's patch changes nine input
+cells in one column by distinct amounts (W-2 wages, K-1 income, QBI income,
+Qualified Wages, interest, ordinary and qualified dividends, a contribution,
+mortgage interest). The second plan's patch tests later years: a following
+cell written with the entered bit, a following cell written without it (the
+control that should be discarded), and a never-entered cell written with the
+bit. Each copy needs one pass in the Planner: open, let it recalculate, save.
+A script then compares each saved test copy with its saved control: did each
+input hold, and did each computed line move by the patched amount.
+
+**The gate as written cannot be met.** Adjustments to income has no single
+input cell, so "wage rows and adjustments write-proven" is out of reach by
+file. The realistic best case is 9 of 15 rows. Whether that is enough is the
+decision in §10, and it should wait for the staged Planner pass.
 
 **Phase 1: writer core, import guard, tests.** No screen yet. Rough size:
 500 lines of JS and 250 of tests (moderate confidence).
@@ -338,3 +416,12 @@ Each has a recommended default. A plain go-ahead accepts all of them.
    later years to key.
 5. **The two wording fixes in §9.** Recommended: make them now, as their own
    small change, whatever happens to the writer.
+
+*Update 2026-11-20.* Decision 1 was yes. Two things changed:
+
+- Decision 2 needs restating, because adjustments to income cannot be
+  written by file (§7.1). The choice after the staged Planner pass is between
+  building a writer that covers up to 9 of 15 rows and marks every other file
+  `PARTIAL`, or staying with approach C.
+- Decision 4 may flip to "write later years too" if the entered-bit test
+  passes (§6.3).

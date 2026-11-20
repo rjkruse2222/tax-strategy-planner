@@ -387,6 +387,11 @@ in `docs/pln-write-back-design.md`.
 What is known to work is narrow: **changing the value of an input cell that
 already exists in the plan.** Nothing else.
 
+§12.8 to §12.10 were added on 2026-11-20 from a read-only survey of 29 real
+plans written by eight producer versions (2022.02000 to 2026.02000). Those
+sections say what the files show. They are marked where the Planner has not
+yet confirmed a point.
+
 ### 12.1 Container fields a writer must reproduce
 
 The reader takes sizes from the central directory and never looks at the
@@ -428,6 +433,11 @@ data:
   sits after `FileData`;
 - the central-directory offset in the end-of-central-directory record.
 
+The layout is stable. All 29 surveyed plans, across all eight versions, have
+the same three members in the same order, methods 8 / 9 / 9, flags `0x0002` /
+`0x000a` / `0x0002`, a data descriptor on `FileData` only, real CRC-32 and
+sizes in every local header, and no archive comment.
+
 ### 12.2 Producing a `FileData` stream the Planner accepts
 
 The Planner reads `FileData` as Deflate64, and the reference keeps it labeled
@@ -464,7 +474,14 @@ Checked for this note on **synthetic data only**, not on the Planner:
   tried. Only `Z_HUFFMAN_ONLY` output has been opened there.
 
 A literal-only stream is larger than the Planner's own, so a patched file is
-bigger than its source. That is expected.
+bigger than its source (about three times the size on the two plans tried;
+more than eleven times with stored blocks). That is expected.
+
+**A literal-only stream is also a fingerprint.** Every Planner-written
+`FileData` stream in the 29 surveyed plans contains match symbols (between
+about 12,000 and 62,000 of them). A stream with none was not written by the
+Planner, which means it is a raw patch whose computed values are stale
+(§12.3).
 
 ### 12.3 The Planner recalculates on open
 
@@ -490,7 +507,7 @@ entry of its own for an input takes the earlier column's value on load, even
 though the file stores a value in that cell. A patch to one column therefore
 also moves every later column that follows it, and a value patched into a
 following column is not what the Planner will show. What marks a cell as
-having its own entry has not been located in the file.
+having its own entry is an "entered" bit, one per cell, described in §12.8.
 
 ### 12.4 Input cells identified
 
@@ -524,6 +541,11 @@ Notes:
   worksheet, screen 566, at +0xb3 and +0xbb (§7.4). Those are computed; the
   patch leaves them alone (§12.3). Finding a value in a record does not make
   that offset the input cell.
+- **The worksheet line is not always the input.** Across the surveyed plans
+  the K-1 worksheet line (566 +0xbb) equals the activity's ordinary income
+  (559 +0x7b, same instance) in 158 of 227 activity and worksheet pairs. In
+  the rest the worksheet line also reflects the activity's other K-1 items or
+  a limitation.
 - **Screens 914 and 915** (instances 4465 and up, and 10001) are computed QBI
   worksheets, not inputs.
 - §8 says the K-1 input screens (case screen 419) hold the §199A wages but
@@ -549,6 +571,13 @@ on Add Item. It was tested three ways (case copy, column copy, copy with
 AutoFlow off) with the same result. The durable pattern is **one scenario per
 plan file**.
 
+The cause is in the file: the copy carries the values but not the entered
+bits of §12.8, so on the next open every later-year cell of the copied case
+counts as following Year 1. Restoring the bits by file, right after the copy
+and before the plan is reopened, makes the copied case hold. That was proven
+on 2026-11-11 with a third reference script (`pln_mark_entered.py`): the
+result held through a Planner save and a reopen.
+
 ### 12.7 Patch procedure (what the reference does)
 
 1. Read the source and never modify it. Refuse to write over an existing
@@ -570,3 +599,135 @@ plan file**.
    record walk still ending exactly at end of file.
 8. Open the new file in the Planner, confirm the input screens and the
    recalculated totals, and save. Use the saved copy from then on (§12.3).
+
+### 12.8 Cell arrays and the entered bits
+
+A case record (`0x0e`, `caseId` >= 2) holds one array of cells and, after it,
+one attribute byte per cell. This layout decodes 20,836 of the 20,908 case
+records in the 29 surveyed plans (99.7%), in every section and every version.
+
+```
++0x4a  u16   number of cells entered in this column (attribute bit 0)
++0x4e  u16   a related count (see below; not relied on)
++0x50  u16   number of cells with attribute bit 6
++0x53  u32   length of the payload from +0x5b on (payload size = this + 0x5b)
++0x5b  u32   heap pointer, then u32 0
++0x63  N cells, 8 bytes each: a float64, or for a text cell a 4-byte heap
+       pointer followed by 4 zero bytes
+q      = 0x63 + 8*N:  u32 (the same pointer value as at +0x5b), u16 0, u16 M
+q+8    M format entries, 8 bytes each: COLORREF (R, G, B, 0), u16 0, u16 flags
+       (M is 0 on many screens)
+then   1 byte (0)
+then   N attribute bytes, one per cell, in cell order
+then   text buffers: [len u8][00][00][text]
+```
+
+So cell `k` has its value at `+0x63 + 8*k` and its attribute byte at
+`q + 8 + 8*M + 1 + k`. N is not stored in the header. A reader finds `q` by
+walking the cell array in 8-byte steps until it meets the pointer value from
++0x5b again, then checks that the N bytes at the computed position are all
+attribute values.
+
+**Attribute byte.** Only eight values occur: `0x00`, `0x01`, `0x02`, `0x03`,
+`0x40`, `0x41`, `0x42`, `0x43`.
+
+| bit          | meaning                                                          |
+|--------------|------------------------------------------------------------------|
+| 0 (`0x01`)   | **entered in this column**. Counted at +0x4a.                    |
+| 1 (`0x02`)   | set on most cells that hold a value, entered or computed. Exact rule not established. |
+| 6 (`0x40`)   | set on cells that take part in the flow between year columns, in first and later columns alike. Counted at +0x50. Exact rule not established. |
+
+A cell that follows an earlier column reads `0x42` or `0x40`. The same cell
+entered in its own column reads `0x43` or `0x41`. An entered cell with bit 6
+clear reads `0x01` or `0x03`. The pairs seen between an entered cell and the
+same cell not entered are `0x43`/`0x42`, `0x41`/`0x40`, `0x03`/`0x42`,
+`0x01`/`0x40` and `0x01`/`0x00`.
+
+Checked against the headers of the decoded records: +0x4a equals the number
+of attribute bytes with bit 0 in 99.1% of them, and +0x50 equals the number
+with bit 6 in 96.9%. +0x4e equals the number with bit 1 in only 79%, so its
+meaning is not pinned down. The length at +0x53 holds in all but 95 of the
+20,908 records.
+
+**Marking a cell as entered by file.** Set bit 0 of the cell's attribute byte
+and add one to the count at +0x4a. This was proven on 2026-11-11 on the
+copied-case problem of §12.6. It has **not** yet been tested for the plain
+case of writing a new value into a later-year cell that currently follows.
+
+**Cell counts change between versions.** N (and M) for a screen are the same
+in every plan of one version but grow when a release adds rows:
+
+| Screen                 | N / M by producer version                                       |
+|------------------------|-----------------------------------------------------------------|
+| 3 (summary grid)       | 292 / 0 in all eight versions                                   |
+| 20 (taxes paid)        | 61 / 79 (2022.02000); 63 / 82 (2023 to 2025); 64 / 83 (2026.x)  |
+| 29 (tax computation)   | 100 / 0 in all                                                  |
+| 35 (Schedule A)        | 107 / 0 through 2025.02000; 111 / 0 (2026.01000); 114 / 0 (2026.02000) |
+| 322 (W-2)              | 42 / 45 through 2025.02000; 44 / 47 (2026.x)                    |
+| 559 (K-1 activity)     | 249 / 0 (2022.02000); 250 / 0 after                             |
+| 566 (K-1 worksheet)    | 31 / 31 in all                                                  |
+| 984 (QBI item)         | 45 / 45 in the four versions that have it                       |
+
+The attribute bytes therefore sit at different payload offsets in different
+versions, and a cell index is only good for the versions it was checked on.
+
+### 12.9 Candidate input cells from a census of entered bits
+
+**None of the cells in this section has been write-tested in the Planner.**
+They are candidates, found from the files alone.
+
+Method: over the 95 case-year chunks of the 29 plans, take every cell that
+carries the entered bit in at least one record, sum it over the instances of
+its screen in a chunk, and count the chunks where that sum equals a computed
+line (a summary-grid slot of §6 or a worksheet line of §7) to the dollar.
+
+| Computed line                              | Candidate input cell          | Chunks matched | Records with the entered bit |
+|--------------------------------------------|-------------------------------|----------------|------------------------------|
+| Wages (grid slot 0)                        | screen 322, cell 2 (+0x73)    | 78 of 85       | 74                           |
+| Taxable interest (grid slot 1)             | screen 342, cell 28 (+0x143)  | 62 of 83       | 85                           |
+| Ordinary dividends (grid slot 3)           | screen 439, cell 0 (+0x63)    | 56 of 60       | 28                           |
+| Qualified dividends (screen 29 +0x10b)     | screen 439, cell 32 (+0x163)  | 61 of 61       | 28                           |
+| Schedule A charitable (screen 35 +0xd3)    | screen 422, cell 6 (+0x93)    | 58 of 60       | 91                           |
+| Schedule A mortgage interest (35 +0x9b)    | screen 20, cell 6 (+0x93)     | 68 of 68       | 18                           |
+| Schedule A property taxes (35 +0x63)       | screen 20, cell 2 (+0x73)     | 25 of 26       | 6                            |
+
+Screen 322 is the W-2 activity (§7.1) and screen 20 the taxes-paid input
+(§7.7); the census agrees with what those sections already read. Screens 342,
+439 and 422 are the interest, dividend and contribution activities: their row
+labels sit on template screens 343, 440 and 423.
+
+Lines with **no** single entered cell behind them:
+
+- **Schedule C net profit** (grid slot 6). The business activity is screen
+  557. Its net is computed (cell 13 equals the grid line in 59 of 59 chunks)
+  from several entered rows; cell 6 (+0x93) is the row entered most often.
+- **Capital gain** (grid slot 7). Capital transactions are one record each on
+  screen 331 (labels on template 332: sales price, basis, dates), so there is
+  no net-gain input.
+- **Adjustments to income** (grid slot 34), **other income** (slot 17), and
+  the rental part of the Schedule E line. Nothing found.
+
+### 12.10 Where activity names are stored
+
+Activity names are in the template chunk (`caseId` 1), not in the case
+records. Each activity type has a list screen there with one instance per
+activity, and the name appears as text of the form
+`<caption> - (<n>. <name>)`, with the name left empty when the activity was
+never named.
+
+| Activity (case screen)        | Template list screen | Caption                  | Plans where the instance counts agree |
+|-------------------------------|----------------------|--------------------------|---------------------------------------|
+| W-2 (322)                     | 457                  | Wage Information         | 10 of 10                              |
+| Interest (342)                | 494                  | Interest Income          | 20 of 20                              |
+| Dividends (439)               | 495                  | Dividend Income          | 8 of 8                                |
+| Contributions (422)           | 503                  | Contribution Information | 15 of 15                              |
+| Capital transactions (331)    | 471                  | Capital Transactions     | 15 of 15                              |
+| Schedule C business (557)     | 459                  | Business Information     | 3 of 3                                |
+| Passthrough K-1 (559)         | 467                  | K1 Information           | 19 of 19                              |
+| QBI item (984)                | 987                  | K1 Information           | 9 of 9                                |
+
+(Counted only on plans with two or more activities of the type, where a
+match is informative.) Row labels for a screen are on a separate template
+screen, usually the case screen id plus one (§3.2), but they are stored in
+display order, which is not cell order, so a label cannot be tied to a cell
+from the template alone.
